@@ -1,0 +1,18 @@
+# simulation build products
+fpga/sim/*.vvp
+fpga/sim/*.vcd
+# Vivado
+fpga/vivado/*.jou
+fpga/vivado/*.log
+fpga/vivado/build/
+fpga/bitstreams/*.bit
+# ESP-IDF
+esp/build/
+esp/sdkconfig
+esp/sdkconfig.old
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+# measurement output: runs are committed deliberately, not swept in
+docs/results/*.json.tmp

@@ -1,0 +1,50 @@
+menu "intan-chain benchmark node"
+
+config CHAIN_WIFI_SSID
+    string "Wi-Fi SSID"
+    default "intan-bench"
+    help
+        SSID of the access point the node streams through. Put the node and
+        the host on the same AP with nothing else associated, or the number
+        this firmware produces measures the neighbours as much as the node.
+
+config CHAIN_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default "changeme"
+    help
+        Empty string means an open network.
+
+config CHAIN_WIFI_MAX_RETRY
+    int "Association attempts before giving up"
+    default 20
+    help
+        On giving up the node logs and reboots, so an unattended bench run
+        recovers from an AP restart instead of sitting dark.
+
+config CHAIN_HOST_IP
+    string "Host IPv4 address for the data stream"
+    default "192.168.4.2"
+    help
+        Datagrams go to this address on CHAIN_UDP_PORT. Unicast, not
+        broadcast: broadcast frames are sent at the basic rate (1 or 6 Mbit/s)
+        and would cap the measurement far below the link rate.
+
+config CHAIN_SYNTH_SAMPLE_HZ
+    int "Stage 0 synthetic sample rate, Hz per channel"
+    default 20000
+    range 100 60000
+    help
+        Offered load = SAMPLE_HZ / FRAMES_PER_DGRAM datagrams per second.
+        At 20000 Hz that is 4000 x 1392 B = 5.57 MB/s = 44.6 Mbit/s of UDP
+        payload. Raise it until pipe drops appear; that point is the answer.
+
+config CHAIN_SYNTH_REALISTIC
+    bool "Stage 0 pattern is REALISTIC (unset means CHECK)"
+    default n
+    help
+        CHECK puts the raw LFSR state in every sample, so the host can prove
+        every bit. REALISTIC is the smooth triangle-plus-noise signal the
+        codec needs to show a plausible ratio. Default is CHECK because
+        correctness has to be established before a ratio means anything.
+
+endmenu

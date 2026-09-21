@@ -1,0 +1,2 @@
+pyserial>=3.5   # UART control interface only; imported lazily inside Ctrl
+pytest>=7.0     # tests

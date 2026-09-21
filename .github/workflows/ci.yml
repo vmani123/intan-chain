@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  contract:
+    name: generated files match CONTRACTS.md
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/gen_contract.py --check
+      # The golden vectors are generated from the host Python, so a change to
+      # the pattern that forgets the vectors would let the FPGA testbench keep
+      # passing against a stale definition.
+      - run: python3 tools/gen_pattern_vectors.py && git diff --exit-code fpga/sim/vectors
+
+  host:
+    name: host python tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r host/requirements.txt
+      - run: cd host && python3 -m pytest tests -q
+
+  fpga:
+    name: fpga simulation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y iverilog
+      - run: ./fpga/sim/run_sim.sh

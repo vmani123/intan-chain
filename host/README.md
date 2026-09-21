@@ -1,0 +1,51 @@
+# host
+
+PC end of the chain: receive the UDP stream, drive the FPGA over UART, and
+score throughput, loss, accuracy and latency. Standard library plus pyserial.
+
+    pip install -r requirements.txt
+
+## Modules
+
+| File | What it is |
+|---|---|
+| `chain/contract.py` | GENERATED from `../CONTRACTS.md`. Never edit, never redefine. |
+| `chain/pattern.py` | The golden test pattern (section 3). Must match the RTL bit for bit. |
+| `chain/frame.py` | Frame and datagram encode/decode (sections 1 and 2). |
+| `chain/metrics.py` | Parsed datagrams in, one results dict out. |
+| `chain/ctrl.py` | UART text protocol (section 4), plus `FakeSerial`, the board side in memory. |
+| `chain/receiver.py` | UDP capture and the echo probe. |
+| `chain/sweep.py` | The measurement loop CLI. |
+| `chain/report.py` | The JSON files in `docs/results/` as a markdown table. |
+
+## Running
+
+    cd host
+    python3 -m chain.sweep --dry-run                      # no hardware, no network
+    python3 -m chain.sweep --serial /dev/ttyUSB1 --target 192.168.4.1 \
+                           --rates 10000 20000 30000 --seconds 10
+    python3 -m chain.sweep --phase-scan --serial /dev/ttyUSB1 --target 192.168.4.1
+    python3 -m chain.report
+
+`--phase-scan` sweeps `PHASE_SELECT` 0..11 at one rate and prints the bit error
+count for each; pick a phase in the middle of a run of zeros, not at its edge.
+
+Results land one JSON file per cell in `../docs/results/`.
+
+## Tests
+
+    python3 -m pytest host/tests -q     # from the repo root
+
+No hardware, no network beyond loopback.
+
+## Reading the numbers
+
+- `throughput` is measured at the PC, between the first and last datagram seen.
+- `loss` separates missing, reordered and duplicate frames: they have different
+  causes and only the first one loses data.
+- `accuracy` compares each frame against the pattern for its own `seq`, so lost
+  frames cost only themselves and never shift the comparison.
+- `latency` has three legs. `fpga_us` and `esp_us` are exact: each is a
+  difference of two timestamps from one device's own counter. `air_us` is half a
+  round trip measured by the echo probe, so it assumes a symmetric path that a
+  loaded Wi-Fi uplink does not have. Treat it as an estimate, and separately.

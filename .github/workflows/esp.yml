@@ -1,0 +1,96 @@
+# Builds the ESP32-S3 firmware. This is the first compiler that has ever seen
+# it -- the firmware was written without an ESP-IDF install, so a green run
+# here is the only evidence it compiles at all.
+#
+# Both ingress variants are built. They share every source file; only which
+# source task app_main() starts differs. Building both is still worth it: the
+# BENCH_INGRESS_QSPI branch in app_main.c is otherwise never preprocessed, and
+# a mistake there would only show up on hardware.
+name: esp
+
+on:
+  push:
+    paths:
+      - 'esp/**'
+      - 'CONTRACTS.md'
+      - '.github/workflows/esp.yml'
+  pull_request:
+    paths:
+      - 'esp/**'
+      - 'CONTRACTS.md'
+      - '.github/workflows/esp.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.4
+    strategy:
+      # Do not cancel the other variant on the first failure: when both break
+      # it is usually the same mistake, and seeing both logs says so at once.
+      fail-fast: false
+      matrix:
+        ingress: [synth, qspi]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The IDF image runs as root while the checkout is owned by another uid,
+      # and the build calls "git describe" for the app version. Without this,
+      # git refuses with "dubious ownership" and the build fails for a reason
+      # that has nothing to do with the code.
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build ${{ matrix.ingress }}
+        shell: bash
+        working-directory: esp
+        run: |
+          set -eu
+          . "$IDF_PATH/export.sh"
+          idf.py --version
+          idf.py -DBENCH_INGRESS=${{ matrix.ingress }} set-target esp32s3
+          idf.py -DBENCH_INGRESS=${{ matrix.ingress }} build
+
+      - name: Flag unapplied sdkconfig keys
+        shell: bash
+        working-directory: esp
+        run: |
+          set -eu
+          # An unknown key in sdkconfig.defaults is a warning, not an error, so
+          # a typo silently does not apply. Print the ones that did not make it
+          # into the generated config; a throughput setting that never applied
+          # would quietly invalidate a measurement.
+          miss=0
+          while read -r line; do
+            case "$line" in ''|'#'*) continue ;; esac
+            key="${line%%=*}"
+            val="${line#*=}"
+            if [ "$val" = "n" ]; then
+              # A disabled bool appears as a comment, not as KEY=n.
+              grep -q "^# ${key} is not set" sdkconfig && continue
+            else
+              grep -q "^${key}=" sdkconfig && continue
+            fi
+            echo "NOT APPLIED: $line"
+            miss=$((miss + 1))
+          done < sdkconfig.defaults
+          echo "$miss sdkconfig.defaults keys did not apply"
+
+      - name: Size report
+        shell: bash
+        working-directory: esp
+        run: |
+          set -eu
+          . "$IDF_PATH/export.sh"
+          idf.py -DBENCH_INGRESS=${{ matrix.ingress }} size
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: intan-chain-esp-${{ matrix.ingress }}
+          path: |
+            esp/build/*.bin
+            esp/build/*.elf
+            esp/build/*.map
+            esp/sdkconfig
+          if-no-files-found: warn
