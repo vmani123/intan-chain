@@ -2,9 +2,16 @@
 
     python3 -m chain.sweep --serial /dev/ttyUSB1 --target 192.168.4.1
     python3 -m chain.sweep --phase-scan --serial /dev/ttyUSB1 --target 192.168.4.1
+    python3 -m chain.sweep --listen-only --rates 20000 --seconds 10
     python3 -m chain.sweep --dry-run
+
+--listen-only opens no control port: it captures whatever arrives and scores
+it. That is stage 1, where the ESP synthesises the stream and there is no FPGA,
+and any run where the board is driven by hand from another terminal. --rates
+then only labels the result; the source sets the real rate.
 """
 import argparse
+import contextlib
 import json
 import pathlib
 import time
@@ -54,15 +61,19 @@ def synth_capture(duration_s: float, rate_hz: int, realistic: bool,
 
 
 def run_cell(ctrl, args, rate_hz: int, phase: int | None = None) -> dict:
-    """One measurement point: configure, capture, read back, score."""
+    """One measurement point: configure, capture, read back, score.
+
+    ctrl is None in listen-only mode: nothing is configured or read back.
+    """
     period = period_for(rate_hz)
-    mode = (C.FLAG_REALISTIC if args.realistic else 0) | 0x4  # bit2: internal pattern
-    ctrl.write("SAMPLE_PERIOD", period)
-    ctrl.write("MODE", mode)
-    if phase is not None:
-        ctrl.write("PHASE_SELECT", phase)
-    ctrl.clear_counters()
-    ctrl.set_run(True)
+    if ctrl is not None:
+        mode = (C.FLAG_REALISTIC if args.realistic else 0) | 0x4  # bit2: internal pattern
+        ctrl.write("SAMPLE_PERIOD", period)
+        ctrl.write("MODE", mode)
+        if phase is not None:
+            ctrl.write("PHASE_SELECT", phase)
+        ctrl.clear_counters()
+        ctrl.set_run(True)
     try:
         if args.dry_run:
             raw = synth_capture(args.seconds, rate_hz, args.realistic, args.drop_every)
@@ -71,17 +82,22 @@ def run_cell(ctrl, args, rate_hz: int, phase: int | None = None) -> dict:
             # so the counter read path is exercised with numbers that mean
             # something rather than with zeros.
             built = max(1, int(args.seconds * rate_hz / C.FRAMES_PER_DGRAM))
-            ctrl.ser.regs[C.REG["DGRAMS"]] = built
-            ctrl.ser.regs[C.REG["FRAMES"]] = built * C.FRAMES_PER_DGRAM
+            if ctrl is not None:
+                ctrl.ser.regs[C.REG["DGRAMS"]] = built
+                ctrl.ser.regs[C.REG["FRAMES"]] = built * C.FRAMES_PER_DGRAM
         else:
-            th, air = receiver.probe_in_background(
-                args.target, port=args.echo_port,
-                count=max(1, int(args.seconds / 0.05)), interval=0.05)
+            th, air = None, []
+            if args.target:
+                th, air = receiver.probe_in_background(
+                    args.target, port=args.echo_port,
+                    count=max(1, int(args.seconds / 0.05)), interval=0.05)
             raw = receiver.capture(args.seconds, port=args.udp_port)
-            th.join(timeout=2.0)  # let the last probe land before it is scored
+            if th is not None:
+                th.join(timeout=2.0)  # let the last probe land before it is scored
     finally:
-        ctrl.set_run(False)
-    counters = ctrl.counters()
+        if ctrl is not None:
+            ctrl.set_run(False)
+    counters = ctrl.counters() if ctrl is not None else None
 
     dgrams, malformed = [], 0
     for t, data in raw:
@@ -99,7 +115,8 @@ def run_cell(ctrl, args, rate_hz: int, phase: int | None = None) -> dict:
     m = metrics.compute(dgrams, air_us=air, malformed=malformed)
     m.update({"rate_hz": rate_hz, "phase": phase, "sample_period": period,
               "realistic": args.realistic, "seconds": args.seconds,
-              "dry_run": args.dry_run, "counters": counters,
+              "dry_run": args.dry_run, "listen_only": args.listen_only,
+              "counters": counters,
               "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S")})
     return m
 
@@ -128,7 +145,8 @@ def one_line(r: dict) -> str:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="run the chain measurement sweep")
     ap.add_argument("--serial", default="/dev/ttyUSB1", help="FPGA control UART")
-    ap.add_argument("--target", default="192.168.4.1", help="ESP address for the echo probe")
+    ap.add_argument("--target", default=None,
+                    help="ESP address for the echo probe; omit to skip air latency")
     ap.add_argument("--rates", type=int, nargs="+", default=[10000, 20000, 30000],
                     help="samples/s/channel to try")
     ap.add_argument("--seconds", type=float, default=10.0, help="capture per cell")
@@ -143,11 +161,20 @@ def main(argv=None) -> int:
                     help="FakeSerial plus synthetic traffic; no hardware, no network")
     ap.add_argument("--drop-every", type=int, default=0,
                     help="dry run only: drop every Nth datagram to exercise the loss path")
+    ap.add_argument("--listen-only", action="store_true",
+                    help="no control port: capture and score only (stage 1, or a board "
+                         "driven by hand); --rates just labels the result")
     args = ap.parse_args(argv)
+    if args.listen_only and args.phase_scan:
+        ap.error("--phase-scan writes PHASE_SELECT, which needs the control port")
 
-    ctrl = Ctrl(ser=FakeSerial()) if args.dry_run else Ctrl(args.serial)
-    with ctrl:
-        ctrl.check_id()
+    if args.listen_only:
+        ctrl = None
+    else:
+        ctrl = Ctrl(ser=FakeSerial()) if args.dry_run else Ctrl(args.serial)
+    with (ctrl if ctrl is not None else contextlib.nullcontext()):
+        if ctrl is not None:
+            ctrl.check_id()
         cells = ([(args.phase_rate, p) for p in range(12)] if args.phase_scan
                  else [(r, None) for r in args.rates])
         results = []

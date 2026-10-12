@@ -25,7 +25,14 @@ score throughput, loss, accuracy and latency. Standard library plus pyserial.
     python3 -m chain.sweep --serial /dev/ttyUSB1 --target 192.168.4.1 \
                            --rates 10000 20000 30000 --seconds 10
     python3 -m chain.sweep --phase-scan --serial /dev/ttyUSB1 --target 192.168.4.1
+    python3 -m chain.sweep --listen-only --rates 20000 --seconds 10   # stage 1: ESP alone
     python3 -m chain.report
+
+`--listen-only` opens no control port: it captures whatever arrives on UDP 5001
+and scores it. Use it for stage 1, where the ESP synthesises the stream, or
+when the board is driven by hand from another terminal; `--rates` then only
+labels the result. `--target` (the ESP's address, from its boot log) turns on
+the echo probe for air latency; without it that column is empty.
 
 `--phase-scan` sweeps `PHASE_SELECT` 0..11 at one rate and prints the bit error
 count for each; pick a phase in the middle of a run of zeros, not at its edge.

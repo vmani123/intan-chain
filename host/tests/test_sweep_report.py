@@ -39,3 +39,26 @@ def test_phase_scan_covers_every_phase(tmp_path, capsys):
 def test_sample_period_respects_the_sequencer_floor():
     assert sweep.period_for(1_000_000) == sweep.MIN_PERIOD  # 35 cmds x 16 bits x 4 ticks
     assert sweep.period_for(30_000) == 3200
+
+
+def test_listen_only_scores_traffic_without_a_control_port(tmp_path, monkeypatch):
+    # Stage 1: the ESP synthesises its own data and there is no FPGA, so there
+    # is no serial port to open and no counters to read.
+    def no_ctrl(*a, **k):
+        raise AssertionError("listen-only opened the control port")
+    monkeypatch.setattr(sweep, "Ctrl", no_ctrl)
+    rc = sweep.main(["--listen-only", "--dry-run", "--seconds", "0.2", "--rates", "5000",
+                     "--out", str(tmp_path)])
+    assert rc == 0
+    r = json.loads(next(iter(tmp_path.glob("*.json"))).read_text())
+    assert r["listen_only"] is True and r["counters"] is None
+    assert r["accuracy"]["bit_errors"] == 0
+    assert r["throughput"]["samples_per_s_per_ch"] > 0
+
+
+def test_listen_only_refuses_a_phase_scan():
+    # A phase scan writes PHASE_SELECT; without the control port it would
+    # silently measure one phase twelve times.
+    import pytest
+    with pytest.raises(SystemExit):
+        sweep.main(["--listen-only", "--phase-scan", "--dry-run"])
