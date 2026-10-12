@@ -15,17 +15,13 @@ the generated `main/chain_contract.h`. Do not hand-edit that header; change
 generated artifacts together.
 
 
-## !! This firmware has never been compiled !!
+## Build status
 
-Not once. There was no ESP-IDF available on the machine where it was written,
-so nothing here has been through a compiler with the real IDF headers.
-
-CI (`.github/workflows/esp.yml`) is the first thing that will ever build it,
-in the `espressif/idf:release-v5.4` image, for both ingress variants. Expect
-the first CI run to fail, and expect the failures to be in `source_qspi.c`
-and `wifi.c`, which are the two files whose APIs could not be checked here.
-Everything the toolchain could not check is listed under "Verified / not
-verified" below.
+Both ingress variants build with no warnings in `main/` against ESP-IDF
+v6.0-dev (`v6.0-dev-2980-gab149384e1`), and every key in `sdkconfig.defaults`
+applies. CI (`.github/workflows/esp.yml`) builds the same two variants in the
+`espressif/idf:release-v5.4` image. Nothing has run on hardware yet; see
+"Verified / not verified" below.
 
 
 ## Build
@@ -122,13 +118,14 @@ so the two agree without first having to agree on header overhead.
 
 Read the header comment of `main/source_qspi.c` in full. Two things will bite:
 
-1. **The phase table.** Command byte, address width, dummy cycles and line
-   count for every phase must be read out of the *installed* ESP-IDF source
-   and the FPGA QSPI master configured field for field. The constants in the
-   `MUST CONFIRM` block in that file are an unverified hypothesis. A one-cycle
-   dummy mismatch does not fault; it silently rotates the data, and downstream
-   that is indistinguishable from a radio problem. The CHECK pattern exists
-   partly to catch this.
+1. **The bus protocol.** Command byte, address width, dummy cycles and line
+   count for every phase are fixed by the slave hardware. They were read out
+   of the ESP-IDF source (v5.4 and v6.0-dev) and the FPGA QSPI master matched
+   to them: the confirmed table is in `main/source_qspi.c`, and
+   `fpga/sim/qspi_hd_monitor.sv` models the slave in the FPGA testbenches. A
+   one-cycle dummy mismatch does not fault; it silently rotates the data, and
+   downstream that is indistinguishable from a radio problem. The CHECK
+   pattern exists partly to catch this.
 
 2. **The ready GPIO.** `PIN_QSPI_READY` (GPIO21) is asserted by the ESP only
    while a DMA receive buffer is armed, and the FPGA master must gate the next
@@ -162,27 +159,24 @@ Verified on the machine where this was written, with no ESP-IDF present:
 - Every file is pure ASCII. `chain_contract.h`'s static asserts pass: header
   20 B, trailer 12 B, frame 276 B, datagram 1392 B.
 
+Verified since, with a real toolchain:
+
+- Both variants compile against ESP-IDF v6.0-dev with no warnings in `main/`,
+  so the `spi_slave_hd` and `esp_wifi` calls in `source_qspi.c` and `wifi.c`
+  exist with the signatures used.
+- Every `sdkconfig.defaults` key applies (none reported as unknown).
+- The QSPI bus protocol was checked against the ESP-IDF source, as above.
+
 Not verified, and this is the honest list:
 
-- **Nothing has been compiled by a real ESP-IDF toolchain.** CI does that
-  first.
-- `source_qspi.c` was written from the documented `spi_slave_hd` API from
-  memory. Struct field names, enum names and the exact signature of
-  `spi_slave_hd_get_trans_res()` are unconfirmed. See its `MUST CONFIRM`
-  block.
-- The QSPI phase table (command bytes, address width, dummy cycles) is an
-  unverified hypothesis, as above.
-- `wifi.c` uses `esp_wifi_set_bandwidth(WIFI_BW_HT40)` and the
-  `phy_11b/g/n/lr` bitfields of `wifi_ap_record_t`; both are believed present
-  in 5.x but unconfirmed here.
-  `esp_wifi_sta_get_negotiated_phymode()` would be the nicer way to log the
-  PHY mode and is left commented out in that file precisely because its
-  presence in every 5.x release could not be checked.
 - Nothing has run on hardware. No throughput number exists yet.
-- The `sdkconfig.defaults` keys have not been validated against a real
-  Kconfig tree. An unknown key produces a warning, not an error, so a typo
-  there fails silently by simply not applying - check the CI log for
-  `unknown kconfig symbol` before trusting a measurement.
+- The v5.4 build is CI's job; it has not been run locally.
+- The 10 us gap the FPGA leaves after each WR_DONE, for the driver's ISR to
+  re-arm the receive DMA, is an estimate of interrupt latency with Wi-Fi on
+  the same core. Periodic seq gaps on the host with `STALLS` at zero would
+  mean it is too short.
+- `esp_wifi_sta_get_negotiated_phymode()` would be the nicer way to log the
+  PHY mode; it is still left commented out in `wifi.c`.
 
 
 ## Open questions the contract does not settle

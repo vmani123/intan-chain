@@ -10,7 +10,9 @@
 // CLOCKING: 100 MHz oscillator -> MMCM -> 96 MHz. Not 100 MHz, because SCLK is
 // the system clock divided by OVERSAMPLE = 4, and 100/4 = 25 MHz is over the
 // RHD2164's 24 MHz limit. 96/4 = 24.0 MHz exactly. VCO is 960 MHz, comfortably
-// inside the Spartan-7 -1 range (600-1200 MHz).
+// inside the Spartan-7 -1 range (600-1200 MHz). It is reached as 100/5 * 48:
+// the obvious 100 * 9.6 is not on the MMCM's 0.125 multiplier grid, and
+// write_bitstream rejects it (DRC AVAL-139). PFD = 20 MHz, inside 10-450 MHz.
 //
 // SINGLE-ENDED I/O on purpose: every user bank on this board is hard-wired to
 // VCCO = 3.3 V and a 7-series HR bank only does LVDS_25, so native LVDS is not
@@ -21,7 +23,9 @@
 
 `default_nettype none
 
-module rx_arty_s7_top (
+module rx_arty_s7_top #(
+    parameter int QSPI_DIV = 2      // QSPI SCLK = 96 / (2 * QSPI_DIV) MHz
+) (
     input  wire clk_100mhz,     // R2, SSTL135 -- sits in the DDR3 bank, not LVCMOS33
     input  wire rst_btn,        // BTN0, active high
 
@@ -54,8 +58,8 @@ module rx_arty_s7_top (
 
     MMCME2_BASE #(
         .CLKIN1_PERIOD   (10.000),   // 100 MHz
-        .CLKFBOUT_MULT_F (9.600),    // VCO = 960 MHz
-        .DIVCLK_DIVIDE   (1),
+        .CLKFBOUT_MULT_F (48.000),   // VCO = 100 / 5 * 48 = 960 MHz
+        .DIVCLK_DIVIDE   (5),
         .CLKOUT0_DIVIDE_F(10.000)    // 96 MHz
     ) u_mmcm (
         .CLKIN1   (clk_ibuf),
@@ -86,7 +90,7 @@ module rx_arty_s7_top (
     wire qspi_oe;   // the link is one-way, so this is always 1; brought out so a
                     // bidirectional variant needs a change here and nowhere else
 
-    rx_top u_rx (
+    rx_top #(.QSPI_DIV(QSPI_DIV)) u_rx (
         .clk        (clk96),
         .rst_n      (rst_n),
 

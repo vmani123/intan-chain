@@ -4,6 +4,9 @@ fpga/sim/*.vcd
 # Vivado
 fpga/vivado/*.jou
 fpga/vivado/*.log
+.Xil/
+clockInfo.txt
+tight_setup_hold_pins.txt
 fpga/vivado/build/
 fpga/bitstreams/*.bit
 # ESP-IDF

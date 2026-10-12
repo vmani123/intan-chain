@@ -7,25 +7,13 @@
  *  READ THIS BEFORE THE FIRST HARDWARE BRING-UP. TWO THINGS WILL BITE.
  * =====================================================================
  *
- * (1) THE PHASE TABLE IS NOT NEGOTIABLE AND IS NOT DOCUMENTED HERE.
+ * (1) THE BUS PROTOCOL IS FIXED BY THE SLAVE HARDWARE.
  *
- *     The ESP32-S3 SPI slave in half-duplex mode implements a fixed,
- *     hardware-defined command protocol. The master does not get to invent
- *     it. Every field of every phase -- the command byte, the address width,
- *     the number of dummy cycles, and how many data lines each phase uses --
- *     must be read out of the ESP-IDF that is actually installed on the build
- *     machine and the FPGA QSPI master configured field for field to match:
- *
- *       components/esp_driver_spi/include/driver/spi_slave_hd.h
- *       components/hal/include/hal/spi_ll.h      (SPI_LL_BASE_CMD_HD_*)
- *       components/hal/esp32s3/include/hal/spi_ll.h
- *       docs/en/api-reference/peripherals/spi_slave_hd.rst
- *         -> the "ESP SPI Slave HD (Half Duplex) Mode Protocol" table
- *
- *     The values written in the MUST-CONFIRM block below are this author's
- *     best reading of that protocol and have NOT been checked against an
- *     installed IDF, because none was available when this file was written.
- *     Treat them as a starting hypothesis.
+ *     The ESP32-S3 SPI slave in half-duplex mode implements a fixed command
+ *     protocol; the master does not get to invent it. The FPGA side
+ *     (fpga/rtl/rx/qspi_master.sv) was matched to it field for field, and
+ *     fpga/sim/qspi_hd_monitor.sv models this slave in the testbenches. See
+ *     the confirmed table below.
  *
  *     Why this warning is at the top of the file: a one-cycle dummy mismatch
  *     does not fault. The slave simply latches the data phase one bit early
@@ -35,7 +23,7 @@
  *     easy to spend a week blaming Wi-Fi for it. The CHECK pattern of
  *     CONTRACTS.md section 3 exists partly to catch this: if the host's
  *     LFSR check fails on byte 0 of every frame while the datagram rate is
- *     nominal, suspect the phase table before anything else.
+ *     nominal, suspect the bus protocol before anything else.
  *
  * (2) A SLAVE-TO-MASTER READY LINE IS REQUIRED, NOT OPTIONAL.
  *
@@ -67,9 +55,9 @@
  * Polling API (queue_trans / get_trans_res) rather than the ISR callbacks.
  * The callbacks would let the ready line be driven from the completion
  * interrupt, which is strictly better, but they are also the part of the API
- * most likely to have drifted between IDF versions. This file has never been
- * compiled. Simple and probably right beats clever and unverifiable; the
- * known cost is documented at drive_ready() below.
+ * most likely to have drifted between IDF versions. Simple and probably
+ * right beats clever and unverifiable; the known cost is documented at
+ * drive_ready() below.
  */
 
 #include <string.h>
@@ -89,42 +77,39 @@
 static const char *TAG = "qspi";
 
 /* =====================================================================
- * MUST CONFIRM AGAINST THE INSTALLED ESP-IDF BEFORE FIRST HARDWARE USE
+ * THE SLAVE-HD BUS PROTOCOL, AS THE FPGA DRIVES IT
  * =====================================================================
  * Nothing below is used by this firmware -- the slave hardware implements the
- * protocol on its own. These are here so the FPGA master has one authoritative
- * place to be configured from, and so the check has a checklist.
+ * protocol on its own. It is here so both ends have one place to be checked
+ * against. Confirmed against ESP-IDF v5.4 (the CI image) and v6.0-dev:
  *
- * Confirm each against hal/spi_ll.h (SPI_LL_BASE_CMD_HD_*) and the slave-HD
- * protocol table in the IDF docs for the INSTALLED version, then delete this
- * banner and record the version the values came from.
+ *   hal/esp32s3/include/hal/spi_ll.h
+ *     spi_ll_get_slave_hd_command():    base command | line-mode mask, where
+ *                                       0x20 = CMD 1-bit, ADDR 1-bit, DATA 4-bit
+ *     spi_ll_get_slave_hd_dummy_bits(): 8, in every line mode
+ *   hal/spi_slave_hd_hal.c:             a DMA receive completes on the CMD7
+ *                                       (WR_DONE) interrupt, not on CS rising
+ *   esp_serial_slave_link/essl_spi.c:   Espressif's own master sends WRDMA,
+ *                                       then a separate WR_DONE transaction
  *
- *   [ ] QSPI_CMD_WRDMA_4LINE   command byte for "master writes DMA", 4-line
- *   [ ] QSPI_CMD_WR_DONE_4LINE command byte that terminates a write segment
- *   [ ] QSPI_ADDR_BITS         width of the address phase
- *   [ ] QSPI_DUMMY_BITS_WR     dummy cycles between address and data on WRITE
- *   [ ] QSPI_CMD_BITS          width of the command phase
- *   [ ] which phases are 1-line and which are 4-line (see note below)
- *   [ ] SPI mode (CPOL/CPHA) the FPGA master drives
+ * One datagram, as qspi_master.sv sends it (SPI mode 0, MSB first):
  *
- * Working hypothesis, from the documented slave-HD protocol:
- *   - command, address and dummy phases are carried on the same number of
- *     lines as the data phase when a 4-line command byte is used; the 4-line
- *     command bytes are the 1-line ones with bit5 set (0x03 -> 0x23).
- *   - a master-write segment is: CMD8 + ADDR8 + DATA(n), no dummy, followed
- *     by a separate WR_DONE command with no data.
- *   - dummy cycles apply to master-READ commands only. This link only ever
- *     does master writes, so QSPI_DUMMY_BITS_WR is expected to be 0 even
- *     though dummy_bits is configured non-zero below for the read direction.
- * If any of that is wrong the symptom is rotated data, see (1) above.
+ *   WRDMA    CS low, 0x23 on D0, 0x00 on D0, 8 dummy SCLKs,
+ *            CHAIN_DGRAM_PAYLOAD bytes on D0..D3, CS high
+ *   WR_DONE  CS low, 0x27 on D0, 0x00 on D0, 8 dummy SCLKs, CS high
+ *   then CS stays high for 10 us while s_spi_slave_hd_segment_isr re-arms
+ *   the receive DMA from the queue below.
+ *
+ * The slot config in source_qspi_start() -- 8 command, 8 address and 8 dummy
+ * bits, mode 0, segment mode -- is the one Espressif's segment_mode/seg_slave
+ * example uses with that master.
  */
 #define QSPI_CMD_BITS            8
 #define QSPI_ADDR_BITS           8
-#define QSPI_DUMMY_BITS          8     /* read direction only; unused here */
-#define QSPI_CMD_WRDMA_4LINE     0x23  /* master -> slave, DMA */
-#define QSPI_CMD_WR_DONE_4LINE   0x27  /* ends the write segment */
+#define QSPI_DUMMY_BITS          8
+#define QSPI_CMD_WRDMA_4LINE     0x23  /* master -> slave, DMA, data on 4 lines */
+#define QSPI_CMD_WR_DONE_4LINE   0x27  /* closes the segment: CMD7 interrupt */
 #define QSPI_CMD_RDDMA_4LINE     0x24  /* unused: this link is one-way */
-/* ===================== end MUST CONFIRM block ======================== */
 
 #define QSPI_HOST        SPI2_HOST
 
@@ -275,7 +260,7 @@ void source_qspi_start(void)
     spi_slave_hd_slot_config_t slot = { 0 };
     slot.spics_io_num = PIN_QSPI_CS;
     slot.flags        = 0;              /* segment mode, MSB first */
-    slot.mode         = 0;              /* CPOL=0 CPHA=0. MUST CONFIRM vs FPGA */
+    slot.mode         = 0;              /* CPOL=0 CPHA=0, as qspi_master.sv drives */
     slot.command_bits = QSPI_CMD_BITS;
     slot.address_bits = QSPI_ADDR_BITS;
     slot.dummy_bits   = QSPI_DUMMY_BITS;

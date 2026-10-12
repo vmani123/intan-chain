@@ -83,7 +83,14 @@ run_tb tb_frame_builder \
     fpga/rtl/rx/frame_builder.sv fpga/rtl/rx/dgram_mem.sv
 
 run_tb tb_rx_top \
-    fpga/sim/tb_rx_top.sv \
+    fpga/sim/tb_rx_top.sv fpga/sim/qspi_hd_monitor.sv \
+    fpga/rtl/rx/rx_top.sv fpga/rtl/gen/pattern_gen.sv \
+    $RTL_RX $EMU
+
+# The whole single-board bench: board top, MMCM, resets, jumpers, ESP model.
+run_tb tb_chain_arty_s7_25 \
+    fpga/sim/tb_chain_arty_s7_25.sv fpga/sim/qspi_hd_monitor.sv \
+    fpga/sim/unisim_stubs.sv fpga/boards/chain_arty_s7_25_top.sv \
     fpga/rtl/rx/rx_top.sv fpga/rtl/gen/pattern_gen.sv \
     $RTL_RX $EMU
 

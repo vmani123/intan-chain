@@ -79,8 +79,8 @@ void wifi_log_link(void)
      *
      * Newer IDF also has esp_wifi_sta_get_negotiated_phymode(), which reports
      * the mode as a single enum and is nicer to log. It is left out here
-     * because this firmware has never been compiled and the call is not
-     * present in every 5.x release; enable it once confirmed:
+     * because the call is not present in every 5.x release; enable it once
+     * confirmed for the IDF in use:
      *
      *   wifi_phy_mode_t pm;
      *   if (esp_wifi_sta_get_negotiated_phymode(&pm) == ESP_OK) {

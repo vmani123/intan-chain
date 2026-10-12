@@ -3,9 +3,13 @@
 A minimal, measurable prototype of one pipeline:
 
 ```
-FPGA pattern/emulator  ->  FPGA receiver  ->  QSPI  ->  ESP32-S3  ->  Wi-Fi UDP  ->  PC
-   Arty S7-25              Arty S7-50                                   MacBook
+RHD2164 emulator  ->  receiver  ->  QSPI  ->  ESP32-S3  ->  Wi-Fi UDP  ->  PC
+\___ one Arty S7-25, SPI over jumpers ___/                                MacBook
 ```
+
+The emulator and the receiver can also sit on separate boards (`fpga/boards/`
+has tops for an Arty S7-50 and a RealDigital Boolean); the bench currently
+uses the single-board build, described below.
 
 It exists to produce three numbers honestly: **throughput**, **latency** and
 **accuracy**. Everything else was left out on purpose.
@@ -16,7 +20,7 @@ It exists to produce three numbers honestly: **throughput**, **latency** and
 make check
 ```
 
-That is the contract check, the host Python tests, and five FPGA testbenches
+That is the contract check, the host Python tests, and six FPGA testbenches
 under Icarus Verilog. It needs `iverilog`, `python3` and `pytest`, and nothing
 else. On a Mac: `brew install icarus-verilog`.
 
@@ -28,10 +32,12 @@ else. On a Mac: `brew install icarus-verilog`.
 | `fpga/rtl/gen/pattern_gen.sv` | matches the host's pattern bit for bit |
 | `fpga/rtl/rx/spi_master.sv` + `miso_phase_select.sv` | closed loop against the **real** RHD2164 emulator RTL; all 128 channels recovered |
 | `fpga/rtl/rx/uart_rx/tx`, `ctrl_regs.sv` | 47 checks, including at the true 96 MHz / 115200 divisor |
-| `fpga/rtl/rx/frame_builder.sv`, `slot_fifo.sv`, `qspi_master.sv` | 15 checks on layout, overrun and drop behaviour |
-| `fpga/rtl/rx/rx_top.sv` | 41 checks: both sources, QSPI decoded back to frames, backpressure, counters |
-| `fpga/boards/rx_arty_s7_top.sv` + `.xdc` | **never synthesised.** The MMCM and the pads are the only untested RTL |
-| `esp/` firmware | **never compiled.** No ESP-IDF in the environment that wrote it; CI is the first build |
+| `fpga/rtl/rx/frame_builder.sv`, `slot_fifo.sv` | 15 checks on layout, overrun and drop behaviour |
+| `fpga/rtl/rx/qspi_master.sv` | speaks the ESP32-S3 slave-HD protocol; checked against `fpga/sim/qspi_hd_monitor.sv`, a model of the slave built from the ESP-IDF source |
+| `fpga/rtl/rx/rx_top.sv` | 46 checks: both sources, QSPI decoded the way the ESP latches it, backpressure, counters |
+| `fpga/boards/chain_arty_s7_25_top.sv` + `.xdc` | the whole board simulated, MMCM and resets included (14 checks, jumpers modelled); **not yet synthesised** |
+| `fpga/boards/rx_arty_s7_top.sv` + `rx_boolean.xdc` | synthesised and smoke-tested on a Boolean (UART, ID, internal pattern), before the QSPI protocol fix |
+| `esp/` firmware | both ingress variants compile cleanly against ESP-IDF v6.0-dev; CI builds v5.4; not yet run on hardware |
 
 The split is deliberate: `rx_top` takes an already-buffered clock and contains no
 vendor primitives, so the entire receiver simulates in plain Icarus. Only the
@@ -51,8 +57,13 @@ fpga/rtl/rx/          spi_master          RHD2164 sequencer + 4x oversample capt
                       qspi_master         quad-SPI egress, ready-gated, patches t_tx
                       uart_rx/tx, ctrl_regs
                       rx_top              the receiver, board-independent
-fpga/boards/          rx_arty_s7_top.sv + .xdc   MMCM and pads, Arty S7-50
+fpga/boards/          chain_arty_s7_25_top.sv + .xdc   emulator + receiver, one Arty S7-25
+                      rx_arty_s7_top.sv + rx_*.xdc     receiver alone (Arty S7-50, Boolean)
+                      emu_arty_s7_25.xdc               emulator alone (rhd2164_top_se)
 fpga/sim/             testbenches, run_sim.sh, golden vectors
+                      qspi_hd_monitor     the ESP32-S3 slave-HD receiver, as a model
+                      unisim_stubs        IBUF/BUFG/MMCM stand-ins so board tops simulate
+fpga/vivado/          build.tcl, program.tcl (non-project batch flow; `make bit-*`)
 fpga/upstream/        vendored RHD2164 emulator RTL + memories (stimulus; never edited)
 
 esp/                  ESP-IDF project: dumb DMA-to-socket relay
@@ -74,16 +85,61 @@ and only the air hop needs estimating. Accuracy is scored against a closed-form
 pattern that the FPGA and the host generate independently from the same
 specification -- no data files to keep in step.
 
-## Build order at the bench
+## The single-board bench
+
+One Arty S7-25 carries both designs. The receiver's SPI master leaves on Pmod
+JA and comes back into the emulator on Pmod JB through five jumpers, so the
+bus crosses real pads and wire; the QSPI to the ESP leaves on Pmod JC. JA and
+JB are the Arty S7's high-speed Pmods (no series resistors); JC is standard
+(200 ohm). Clocks: one MMCM makes 96 MHz for the receiver and 192 MHz for the
+emulator.
+
+| Jumper | Signal | | Arty | Signal | ESP32-S3 |
+|---|---|---|---|---|---|
+| JA1 -> JB1 | cs_n | | JC1 | qspi_cs_n | GPIO10 |
+| JA2 -> JB2 | sclk | | JC2 | qspi_sclk | GPIO12 |
+| JA3 -> JB3 | mosi | | JC3 | qspi_dq[0] | GPIO11 |
+| JB4 -> JA4 | miso0 | | JC4 | qspi_dq[1] | GPIO13 |
+| JB7 -> JA7 | miso1 | | JC7 | qspi_dq[2] | GPIO14 |
+| | | | JC8 | qspi_dq[3] | GPIO9 |
+| | | | JC9 | esp_ready (in) | GPIO21 |
+| | | | JC5/JC11 | GND | GND |
+
+Never connect a 3V3 pin (Pmod pins 6 and 12) between boards. The SPI loop
+needs no ground jumper; the ESP does.
+
+LEDs: LD2 receiver running, LD3 heartbeat, LD4 QSPI activity, LD5 the
+emulator sees chip select (dark while LD2 is lit means a JA/JB jumper is off).
+
+### Build and program
+
+```bash
+# on a machine with Vivado (source <Vivado>/settings64.sh first)
+QSPI_DIV=6 make bit-chain     # -> fpga/bitstreams/chain_arty_s7_25_div6.bit, QSPI at 8 MHz
+
+# on the Mac, with the Arty on USB (brew install openfpgaloader)
+openFPGALoader -b arty_s7_25 fpga/bitstreams/chain_arty_s7_25_div6.bit
+```
+
+Start at `QSPI_DIV=6`: 8 MHz over jumper wires proves the protocol before
+speed is pushed. `make bit-chain` alone builds 24 MHz.
+
+### Bring-up order
 
 Each step is verifiable before the next one is wired.
 
-1. **ESP synthetic source -> PC.** No FPGA. Gives the radio ceiling.
-2. **Internal pattern inside `rx_top` -> QSPI -> ESP.** One board. Debugs the
-   QSPI link with the SPI link out of the way (`MODE` bit 2).
-3. **Two boards.** The emulator drives the real Intan SPI (`MODE` bit 2 clear).
-   Sweep `PHASE_SELECT` 0..11 and take the setting with zero bit errors.
-4. **Codec on.** Not written yet; the flag and the frame type exist for it.
+1. **ESP synthetic source -> PC.** No FPGA (`-DBENCH_INGRESS=synth`). Gives the
+   radio ceiling.
+2. **Board alone.** Program it, `R 1f` must answer `1f=1c100001`. With the ESP
+   unplugged, `W 03 00000004` then `W 00 00000001`: `FRAMES` climbs, `STALLS`
+   climbs and `DGRAMS` stays 0 (esp_ready is pulled down).
+3. **Internal pattern -> QSPI -> ESP -> PC.** Wire JC to the ESP, flash
+   `-DBENCH_INGRESS=qspi`. Debugs the QSPI link with SPI out of the way
+   (`MODE` bit 2). The host's CHECK pattern must show zero bit errors.
+4. **Emulator through the jumpers.** `MODE` bit 2 clear. Sweep `PHASE_SELECT`
+   0..11 (`python3 -m chain.sweep --phase-scan`) and take the middle of the run
+   of settings with zero bit errors. In simulation the clean window is 2 wide.
+5. **Codec on.** Not written yet; the flag and the frame type exist for it.
 
 ## Driving the board by hand
 
@@ -101,11 +157,18 @@ R 13            -> 13=00000000      overruns
 
 ## Known ceilings in the current configuration
 
-At 96 MHz with `QSPI_DIV = 2` (SCLK 24 MHz), one datagram takes 11056 clocks,
-so the QSPI egress tops out near **23 kS/s per channel**. One SPI sweep is 2800
-clocks, about **34 kS/s**. So QSPI, not the RHD2164 sequencer, is the first
-ceiling -- worth knowing before blaming the radio. Lower `QSPI_DIV` to 1 to
-double it.
+One datagram on the QSPI link is a WRDMA (16 command/address bits, 8 dummy
+cycles, 2760 data nibbles), a WR_DONE (24 SCLKs) and a 10 us gap for the ESP
+to re-arm its DMA. At 96 MHz:
+
+| `QSPI_DIV` | SCLK | clocks per datagram | QSPI ceiling |
+|---|---|---|---|
+| 6 | 8 MHz | ~34700 | **~13.8 kS/s per channel** |
+| 2 | 24 MHz | ~12200 | ~39 kS/s per channel |
+
+One SPI sweep is 2800 clocks, about **34 kS/s**. So at `QSPI_DIV = 6` the QSPI
+link is the first ceiling, and at 2 the RHD2164 sequencer is -- worth knowing
+before blaming the radio.
 
 ## Licence note
 

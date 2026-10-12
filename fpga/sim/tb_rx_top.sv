@@ -3,10 +3,12 @@
 // ----------------------------------------------------------------------------
 // Nothing here pokes an internal signal. The board is configured over the real
 // serial wires, exactly as CONTRACTS.md section 4 specifies, and every check is
-// made on bytes recovered from the QSPI pins by a monitor that knows only the
-// waveform: nibbles on four lines, most significant first, command byte and
-// address byte, then 1380 data bytes. If the FPGA and the host ever disagree
-// about the frame layout, this is where it shows up.
+// made on bytes recovered from the QSPI pins by qspi_hd_monitor, which latches
+// them where the ESP32-S3's slave-HD hardware would: command and address on one
+// line, 8 dummy cycles, data on four, and nothing delivered until a WR_DONE
+// closes the segment. If the FPGA and the host ever disagree about the frame
+// layout, or the FPGA and the ESP about the bus protocol, this is where it
+// shows up.
 //
 // FOUR THINGS ARE BEING PROVEN
 //
@@ -45,7 +47,6 @@ module tb_rx_top;
     localparam int HDR_BYTES   = 20;
     localparam int FRAME_BYTES = HDR_BYTES + N_CH * 2;      // 276
     localparam int DATA_BYTES  = FPD * FRAME_BYTES;         // 1380
-    localparam int NIB_TOTAL   = 4 + 2 * DATA_BYTES;        // 2764
 
     localparam int CLK_HZ  = 96_000_000;
     localparam int BAUD    = 6_000_000;                     // divisor 16
@@ -107,45 +108,16 @@ module tb_rx_top;
     ) chip1 (.clk(clk400), .rst_n(rst_n), .cs(spi_cs_n), .sclk(spi_sclk),
              .mosi(spi_mosi), .miso(miso1));
 
-    // ---------------- QSPI monitor ----------------
-    // Knows the waveform and nothing else: it reassembles bytes from the nibble
-    // stream and hands the checker a finished datagram.
-    reg [7:0] dgbuf  [0:DATA_BYTES-1];
-    reg [7:0] dgcopy [0:DATA_BYTES-1];
-    reg [7:0] cmd_seen, addr_seen;
-    integer   nib_i      = 0;
-    integer   nib_count  = 0;
-    integer   dg_seen    = 0;
+    // ---------------- QSPI monitor: the ESP32-S3's view of the bus ----------------
     integer   dg_consumed = 0;
     integer   mon_base   = 0;
-    integer   bad_len    = 0;
-    integer   mb, mk;
-    // Off across a reset, so the idle-to-high transition of cs_n and any
-    // transaction cut short by the reset are not mistaken for datagrams.
+    // Off across a reset, so a transaction cut short by the reset is not
+    // mistaken for a datagram.
     reg       mon_en     = 1'b0;
 
-    always @(posedge qspi_sclk) if (mon_en && !qspi_cs_n) begin
-        if      (nib_i == 0) cmd_seen[7:4]  = qspi_dq_out;
-        else if (nib_i == 1) cmd_seen[3:0]  = qspi_dq_out;
-        else if (nib_i == 2) addr_seen[7:4] = qspi_dq_out;
-        else if (nib_i == 3) addr_seen[3:0] = qspi_dq_out;
-        else begin
-            mb = (nib_i - 4) / 2;
-            if (mb < DATA_BYTES) begin
-                if (((nib_i - 4) % 2) == 0) dgbuf[mb][7:4] = qspi_dq_out;
-                else                        dgbuf[mb][3:0] = qspi_dq_out;
-            end
-        end
-        nib_i = nib_i + 1;
-    end
-
-    always @(posedge qspi_cs_n) if (mon_en) begin
-        nib_count = nib_i;
-        if (nib_count != NIB_TOTAL) bad_len = bad_len + 1;
-        for (mk = 0; mk < DATA_BYTES; mk = mk + 1) dgcopy[mk] = dgbuf[mk];
-        nib_i   = 0;
-        dg_seen = dg_seen + 1;
-    end
+    qspi_hd_monitor #(.EXP_BYTES(DATA_BYTES)) mon (
+        .en(mon_en), .cs_n(qspi_cs_n), .sclk(qspi_sclk), .dq(qspi_dq_out)
+    );
 
     task automatic wait_dgram(output integer ok);
         integer guard;
@@ -153,8 +125,8 @@ module tb_rx_top;
             guard = 0;
             ok    = 0;
             while (guard < 400000) begin
-                if (dg_seen != dg_consumed) begin
-                    dg_consumed = dg_seen;
+                if (mon.dg_seen != dg_consumed) begin
+                    dg_consumed = mon.dg_seen;
                     ok = 1;
                     guard = 400000;
                 end else begin
@@ -167,11 +139,11 @@ module tb_rx_top;
     endtask
 
     function automatic [15:0] g16(input integer off);
-        g16 = {dgcopy[off+1], dgcopy[off]};
+        g16 = {mon.dgcopy[off+1], mon.dgcopy[off]};
     endfunction
 
     function automatic [31:0] g32(input integer off);
-        g32 = {dgcopy[off+3], dgcopy[off+2], dgcopy[off+1], dgcopy[off]};
+        g32 = {mon.dgcopy[off+3], mon.dgcopy[off+2], mon.dgcopy[off+1], mon.dgcopy[off]};
     endfunction
 
     // ---------------- UART, on the real wires ----------------
@@ -295,8 +267,8 @@ module tb_rx_top;
                 torn    = torn + 1;
                 hdr_bad = hdr_bad + 1;
             end
-            if (dgcopy[o+2] !== 8'd0)        hdr_bad = hdr_bad + 1;  // RAW16
-            if (dgcopy[o+3] !== exp_flags)   hdr_bad = hdr_bad + 1;
+            if (mon.dgcopy[o+2] !== 8'd0)      hdr_bad = hdr_bad + 1;  // RAW16
+            if (mon.dgcopy[o+3] !== exp_flags) hdr_bad = hdr_bad + 1;
             if (g16(o+16)   !== 16'd128)     hdr_bad = hdr_bad + 1;  // n_ch
             if (g16(o+18)   !== 16'd256)     hdr_bad = hdr_bad + 1;  // payload_len
 
@@ -373,9 +345,8 @@ module tb_rx_top;
             repeat (20) @(negedge clk);
             rst_n = 1'b1;
             repeat (20) @(negedge clk);
-            nib_i       = 0;
-            dg_consumed = dg_seen;
-            mon_base    = dg_seen;
+            dg_consumed = mon.dg_seen;
+            mon_base    = mon.dg_seen;
             mon_en      = 1'b1;
             have_seq = 0;
             hdr_bad = 0; ttx_bad = 0; seq_bad = 0; pay_bad = 0;
@@ -405,11 +376,11 @@ module tb_rx_top;
         reg_rd("1f", v);
         chk(v === 32'h1C10_0001, "ID register reads back over the UART");
 
-        cmd_ok("W 01 00000960\n", "set SAMPLE_PERIOD = 2400");
+        cmd_ok("W 01 00000bb8\n", "set SAMPLE_PERIOD = 3000");
         cmd_ok("W 03 00000004\n", "set MODE = internal pattern, CHECK");
         cmd_ok("W 00 00000001\n", "set CTRL run");
 
-        base_dg = dg_seen;
+        base_dg = mon.dg_seen;
         for (d = 0; d < 2; d = d + 1) begin
             wait_dgram(ok);
             if (!ok) errors = errors + 1;
@@ -420,18 +391,23 @@ module tb_rx_top;
         end
         cmd_ok("W 00 00000000\n", "clear CTRL run");
 
-        chk(cmd_seen  === 8'h23, "QSPI command byte is 0x23");
-        chk(addr_seen === 8'h00, "QSPI address byte is 0x00");
-        chk(bad_len == 0,        "every transaction is exactly 5 x 276 bytes");
+        chk(mon.wr_cmd   === 8'h23, "QSPI write is WRDMA 0x23 (cmd+addr 1 line, data 4)");
+        chk(mon.wr_addr  === 8'h00, "QSPI address byte is 0x00");
+        chk(mon.done_cmd === 8'h27, "every segment is closed by WR_DONE 0x27");
+        chk(mon.missing_done == 0 && mon.orphan_done == 0,
+            "exactly one WR_DONE per WRDMA segment");
+        chk(mon.proto_err == 0,     "no malformed transaction on the QSPI bus");
+        chk(mon.bad_len == 0,       "every segment is exactly 5 x 276 bytes");
+        chk(mon.min_gap_ns >= 10000.0, "CS idles >= 10 us after WR_DONE (ESP re-arm)");
         chk(hdr_bad == 0,        "magic, type, flags, n_ch, payload_len correct");
         chk(seq_bad == 0,        "seq increments by one with no gaps");
         chk(ttx_bad == 0,        "t_tx nonzero and never earlier than t_cap");
         chk(pay_bad == 0,        "payload matches the host's CHECK vectors");
-        chk(dg_seen - base_dg >= 2, "datagrams keep coming");
+        chk(mon.dg_seen - base_dg >= 2, "datagrams keep coming");
 
         repeat (20000) @(posedge clk);          // let the pipe drain
         reg_rd("11", v);
-        ndg = dg_seen - mon_base;
+        ndg = mon.dg_seen - mon_base;
         chk(v === ndg[31:0], "DGRAMS register agrees with the pin monitor");
         reg_rd("13", v);
         chk(v === 32'd0, "OVERRUNS zero when the rate is inside the link");
@@ -443,7 +419,7 @@ module tb_rx_top;
         // =================================================================
         $display("\n=== (a2) internal pattern, REALISTIC mode ===");
         hard_reset();
-        cmd_ok("W 01 00000960\n", "set SAMPLE_PERIOD = 2400");
+        cmd_ok("W 01 00000bb8\n", "set SAMPLE_PERIOD = 3000");
         cmd_ok("W 03 00000005\n", "set MODE = internal pattern, REALISTIC");
         cmd_ok("W 00 00000001\n", "set CTRL run");
 
@@ -505,7 +481,7 @@ module tb_rx_top;
         chk(off_bad   == 0, "the playback pointer advances one sample per frame");
 
         // =================================================================
-        // A sweep takes 2800 clocks and a datagram slot drains in 2212 per
+        // A sweep takes 2800 clocks and a datagram slot drains in about 2440 per
         // frame, so at a 2000-clock period the source is the only thing that
         // cannot keep up: every other start is refused. That isolates the
         // missed-start counter from a FIFO overflow, which would also raise
@@ -551,7 +527,7 @@ module tb_rx_top;
         // buffered datagrams are in flight and nothing new is being built.
         cmd_ok("W 00 00000000\n", "clear CTRL run");
         repeat (2000) @(posedge clk);
-        base_dg = dg_seen;
+        base_dg = mon.dg_seen;
         hdr_bad = 0; torn = 0;
         @(negedge clk); esp_ready = 1'b1;
         for (d = 0; d < 4; d = d + 1) begin
@@ -562,10 +538,11 @@ module tb_rx_top;
                 if (g16(f * FRAME_BYTES + 16) !== 16'd128) hdr_bad = hdr_bad + 1;
             end
         end
-        chk(dg_seen - base_dg == 4, "the four buffered datagrams all come out");
+        chk(mon.dg_seen - base_dg == 4, "the four buffered datagrams all come out");
         chk(torn == 0,    "no datagram is torn: magic at all five frame offsets");
         chk(hdr_bad == 0, "buffered datagrams still carry n_ch = 128");
-        chk(bad_len == 0, "every transaction in the whole run was 1380 bytes");
+        chk(mon.bad_len == 0,   "every segment in the whole run was 1380 bytes");
+        chk(mon.proto_err == 0, "no malformed QSPI transaction in the whole run");
 
         // Counters must be clearable, or a sweep cannot start from a clean slate.
         repeat (20000) @(posedge clk);          // drain before measuring
