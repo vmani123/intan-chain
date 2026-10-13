@@ -62,3 +62,29 @@ def test_listen_only_refuses_a_phase_scan():
     import pytest
     with pytest.raises(SystemExit):
         sweep.main(["--listen-only", "--phase-scan", "--dry-run"])
+
+
+def test_emulator_source_scores_against_the_playback_memory(tmp_path):
+    rc = sweep.main(["--dry-run", "--source", "emulator", "--seconds", "0.2", "--rates", "5000",
+                     "--out", str(tmp_path)])
+    assert rc == 0
+    r = json.loads(next(iter(tmp_path.glob("*.json"))).read_text())
+    assert r["source"] == "emulator" and r["accuracy"]["source"] == "emulator"
+    assert r["accuracy"]["bit_errors"] == 0
+
+
+def test_phase_scan_runs_the_emulator_not_the_internal_pattern(tmp_path, monkeypatch):
+    # PHASE_SELECT only matters when the receiver reads real SPI (MODE bit 2
+    # clear). Scanning it with the internal pattern measured nothing.
+    modes = []
+    real_write = sweep.Ctrl.write
+    def spy(self, reg, value):
+        if reg == "MODE":
+            modes.append(value)
+        return real_write(self, reg, value)
+    monkeypatch.setattr(sweep.Ctrl, "write", spy)
+    sweep.main(["--dry-run", "--phase-scan", "--phase-rate", "5000", "--seconds", "0.05",
+                "--out", str(tmp_path)])
+    assert modes and all(m & 0x4 == 0 for m in modes)
+    r = json.loads(sorted(tmp_path.glob("phase*.json"))[0].read_text())
+    assert r["source"] == "emulator"

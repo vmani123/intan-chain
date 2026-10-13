@@ -1,11 +1,11 @@
 /*
  * pins_s3.h - every pin number for the ESP32-S3 node, in one place.
  *
- * The QSPI pins are the SPI2 (FSPI) IOMUX set. That is not cosmetic: routed
- * through the GPIO matrix the slave adds two APB cycles of input delay and
- * tops out near 26 MHz, while on the IOMUX path the same peripheral is
- * specified to 80 MHz. Since the whole point of this board is to find the
- * ceiling, the ingress must not be the thing that sets it.
+ * The QSPI pins are the SPI2 (FSPI) IOMUX set, chosen so the slave could use
+ * the direct IOMUX route. On the bench that route never decoded a command,
+ * so source_qspi.c forces the GPIO matrix instead (see slave_init() there);
+ * the pin numbers, and the wiring, are unchanged. ESP-IDF says the two routes
+ * behave the same below 80 MHz, so the IOMUX failure is still open.
  *
  * ESP32-S3 pins to keep clear, for reference when moving any of these:
  *   GPIO0        strapping (boot mode), has an external pull-up on most boards

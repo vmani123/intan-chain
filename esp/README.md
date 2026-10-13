@@ -20,8 +20,37 @@ generated artifacts together.
 Both ingress variants build with no warnings in `main/` against ESP-IDF
 v6.0-dev (`v6.0-dev-2980-gab149384e1`), and every key in `sdkconfig.defaults`
 applies. CI (`.github/workflows/esp.yml`) builds the same two variants in the
-`espressif/idf:release-v5.4` image. Nothing has run on hardware yet; see
-"Verified / not verified" below.
+`espressif/idf:release-v5.4` image.
+
+Both run on hardware (an ESP32-S3 DevKitC-1 clone with a CH343 USB bridge and
+N8R8 module): `synth` streams to the Mac at up to ~21.5 Mbit/s on a 2.4 GHz
+home network, and `qspi` receives from the Arty S7-25 bit-exact at 2-8 kS/s.
+
+## On the bench: three things that had to change
+
+1. **The QSPI slave runs through the GPIO matrix, not IOMUX.** On the direct
+   IOMUX route the slave never decoded a command (`cmd_err` on every
+   transaction, no WR_DONE ever seen), although all six lines were live. The
+   same wires through the GPIO matrix deliver every datagram bit-exact.
+   `slave_init()` forces the matrix with `SPICOMMON_BUSFLAG_GPIO_PINS`. ESP-IDF
+   says the two routes behave the same below 80 MHz, so the cause is still open;
+   the leading guess is ringing on SCLK or CS over the jumpers. Recheck at
+   24 MHz (`QSPI_DIV=2`) and with a scope.
+2. **The receiver re-arms on a timer, not only on completions.** If the buffer
+   pool ran dry with nothing armed, nothing ever completed again: ready stayed
+   low and the FPGA stalled for good (seen at 8 kS/s). The task now wakes every
+   2 ms while short of armed buffers. An empty pool is a stall the FPGA counts,
+   not a drop, so it uses `pipe_try_acquire()`, which does not count one.
+3. **When nothing arrives, the log says why.** After a second without a
+   segment, `qspi` prints what the slave decoded (last command, WR_DONE and
+   cmd_err flags) and whether each QSPI pin is moving. A pin stuck high or low
+   while the FPGA counts DGRAMS is a wire. `CONFIG_CHAIN_QSPI_PIN_SCAN`
+   (menuconfig, off by default) goes further: it tries all 120 ways the five
+   non-CS wires could be connected and runs on the one that delivers valid
+   datagrams. It is how the matrix/IOMUX difference was found.
+
+The 1 Hz `pipe` line divides by a nominal second; when the reporting task is
+starved (saturated radio) its rates are wrong. Use the host's numbers.
 
 
 ## Build
@@ -169,8 +198,8 @@ Verified since, with a real toolchain:
 
 Not verified, and this is the honest list:
 
-- Nothing has run on hardware. No throughput number exists yet.
 - The v5.4 build is CI's job; it has not been run locally.
+- Why the IOMUX route fails (above).
 - The 10 us gap the FPGA leaves after each WR_DONE, for the driver's ISR to
   re-arm the receive DMA, is an estimate of interrupt latency with Wi-Fi on
   the same core. Periodic seq gaps on the host with `STALLS` at zero would

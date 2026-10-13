@@ -54,3 +54,18 @@ def test_probe_in_background_runs_next_to_a_capture():
     th.join(timeout=5.0)
     responder.stop()
     assert len(out) == 3
+
+
+def test_a_socket_opened_before_the_run_keeps_the_first_datagrams():
+    # The sweep opens the data socket before it starts the FPGA. Opening it
+    # inside capture() lost the first 4 datagrams of a bench run (seq 0..19):
+    # they arrived before the socket existed.
+    import socket
+    sock = receiver.open_socket(port=0)
+    port = sock.getsockname()[1]
+    tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    tx.sendto(b"early", ("127.0.0.1", port))
+    tx.close()
+    got = receiver.capture(0.2, sock=sock)
+    sock.close()
+    assert [d for _t, d in got] == [b"early"]

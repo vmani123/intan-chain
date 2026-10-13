@@ -47,4 +47,16 @@ config CHAIN_SYNTH_REALISTIC
         codec needs to show a plausible ratio. Default is CHECK because
         correctness has to be established before a ratio means anything.
 
+config CHAIN_QSPI_PIN_SCAN
+    bool "Find the QSPI wiring at boot (bench diagnostic)"
+    default n
+    help
+        Before arming the receiver, try all 120 ways the five non-CS QSPI
+        wires could be connected (SCLK, D0..D3) while the FPGA streams, and
+        keep the one that delivers valid datagrams. The result is logged; if
+        it differs from pins_s3.h the log says so, and the receiver runs on
+        the wiring found (through the GPIO matrix, which is fine at 8 MHz but
+        marginal at 24). Start the FPGA (MODE 4, run) before the ESP boots.
+        Leave off for measurements: fix the wiring instead.
+
 endmenu

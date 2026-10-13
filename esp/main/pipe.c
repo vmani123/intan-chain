@@ -58,6 +58,12 @@ esp_err_t pipe_init(void)
     return ESP_OK;
 }
 
+pipe_buf_t *pipe_try_acquire(void)
+{
+    pipe_buf_t *b = NULL;
+    return xQueueReceive(s_free, &b, 0) == pdTRUE ? b : NULL;
+}
+
 pipe_buf_t *pipe_acquire(uint32_t wait_ms)
 {
     pipe_buf_t *b = NULL;

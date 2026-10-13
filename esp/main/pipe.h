@@ -68,6 +68,12 @@ void pipe_run(void);
  * caller should drop the datagram and stay on its schedule rather than slow
  * down, so that the offered load stays at the commanded rate. */
 pipe_buf_t *pipe_acquire(uint32_t wait_ms);
+
+/* As pipe_acquire(0), but an empty pool is not counted as a drop. For a
+ * source with back-pressure (QSPI: the FPGA waits on the ready line and
+ * counts STALLS), an empty pool means "wait", and retrying it every few ms
+ * must not inflate the drops figure that the synthetic source relies on. */
+pipe_buf_t *pipe_try_acquire(void);
 void        pipe_submit(pipe_buf_t *b);
 
 /* Sink side. */

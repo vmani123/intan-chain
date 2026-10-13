@@ -34,6 +34,13 @@ when the board is driven by hand from another terminal; `--rates` then only
 labels the result. `--target` (the ESP's address, from its boot log) turns on
 the echo probe for air latency; without it that column is empty.
 
+`--source emulator` clears MODE bit 2, so the receiver reads the RHD2164 bus
+(on the bench, the emulator over the JA-JB jumpers), and scores every frame
+against the emulator's playback memory (`chain/emulator.py`, read from
+`fpga/upstream/rhd2164-emulator-mem/`). The default, `pattern`, uses the FPGA's
+internal test pattern. `--phase-scan` always uses the emulator: PHASE_SELECT
+does nothing to the internal pattern.
+
 `--phase-scan` sweeps `PHASE_SELECT` 0..11 at one rate and prints the bit error
 count for each; pick a phase in the middle of a run of zeros, not at its edge.
 
@@ -50,8 +57,15 @@ No hardware, no network beyond loopback.
 - `throughput` is measured at the PC, between the first and last datagram seen.
 - `loss` separates missing, reordered and duplicate frames: they have different
   causes and only the first one loses data.
-- `accuracy` compares each frame against the pattern for its own `seq`, so lost
-  frames cost only themselves and never shift the comparison.
+- `accuracy` compares each frame against the pattern (or, with `--source
+  emulator`, the emulator's memory) at its own `seq` plus one per-run offset, so
+  lost frames cost only themselves and never shift the comparison. The offset
+  is there because the FPGA's pattern generator and playback pointer do not
+  restart with `seq`; it is found by majority over the first frames and
+  reported as `pattern_offset` or `playback_offset`.
+- `loss.stale_frames` counts frames a run's first datagram carried over from
+  the run before (the FPGA finishes a partial datagram across stop/start); they
+  are dropped, not counted as loss.
 - `latency` has three legs. `fpga_us` and `esp_us` are exact: each is a
   difference of two timestamps from one device's own counter. `air_us` is half a
   round trip measured by the echo probe, so it assumes a symmetric path that a

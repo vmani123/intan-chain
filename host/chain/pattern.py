@@ -101,3 +101,25 @@ def expected_sample(index: int, realistic: bool = False, n_ch: int = N_CH) -> li
     triangle half keeps the true index (it only wants index mod 256).
     """
     return _values(index, _states_at(index % PERIOD, n_ch), realistic)
+
+
+# Channel 0's state alone identifies a CHECK sample's index: a maximal LFSR
+# visits each nonzero state exactly once per period. Built on first use.
+_CH0_INDEX: dict[int, int] = {}
+
+
+def check_index(samples: list[int]) -> int | None:
+    """The index (mod PERIOD) a CHECK-mode sample was generated at, or None.
+
+    Channel 0 proposes the index and every other channel must then agree, so a
+    corrupted or non-pattern frame returns None rather than a lucky guess.
+    """
+    if not _CH0_INDEX:
+        s = seed(0)
+        for i in range(PERIOD):
+            _CH0_INDEX[s] = i
+            s = lfsr_next(s)
+    i = _CH0_INDEX.get(samples[0] & MASK16)
+    if i is None or expected_sample(i, False, len(samples)) != list(samples):
+        return None
+    return i

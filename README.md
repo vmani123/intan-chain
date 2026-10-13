@@ -28,16 +28,16 @@ else. On a Mac: `brew install icarus-verilog`.
 
 | Part | Status |
 |---|---|
-| `host/` Python: pattern, framing, metrics, control, sweep | 38 pytest tests pass |
+| `host/` Python: pattern, framing, metrics, control, sweep, emulator golden | 50 pytest tests pass |
 | `fpga/rtl/gen/pattern_gen.sv` | matches the host's pattern bit for bit |
 | `fpga/rtl/rx/spi_master.sv` + `miso_phase_select.sv` | closed loop against the **real** RHD2164 emulator RTL; all 128 channels recovered |
 | `fpga/rtl/rx/uart_rx/tx`, `ctrl_regs.sv` | 47 checks, including at the true 96 MHz / 115200 divisor |
 | `fpga/rtl/rx/frame_builder.sv`, `slot_fifo.sv` | 15 checks on layout, overrun and drop behaviour |
 | `fpga/rtl/rx/qspi_master.sv` | speaks the ESP32-S3 slave-HD protocol; checked against `fpga/sim/qspi_hd_monitor.sv`, a model of the slave built from the ESP-IDF source |
 | `fpga/rtl/rx/rx_top.sv` | 46 checks: both sources, QSPI decoded the way the ESP latches it, backpressure, counters |
-| `fpga/boards/chain_arty_s7_25_top.sv` + `.xdc` | the whole board simulated, MMCM and resets included (14 checks, jumpers modelled); **not yet synthesised** |
+| `fpga/boards/chain_arty_s7_25_top.sv` + `.xdc` | the whole board simulated (14 checks, jumpers modelled); synthesised (`QSPI_DIV=6`, WNS +0.497 ns) and **run on hardware**: emulator -> jumpers -> receiver -> QSPI -> ESP -> Wi-Fi -> Mac bit-exact at 2, 4 and 8 kS/s |
 | `fpga/boards/rx_arty_s7_top.sv` + `rx_boolean.xdc` | synthesised and smoke-tested on a Boolean (UART, ID, internal pattern), before the QSPI protocol fix |
-| `esp/` firmware | both ingress variants compile cleanly against ESP-IDF v6.0-dev; CI builds v5.4; not yet run on hardware |
+| `esp/` firmware | runs on an ESP32-S3 DevKitC-1 clone: synthetic source to the Mac, and the QSPI receiver (through the GPIO matrix, see `esp/README.md`) |
 
 The split is deliberate: `rx_top` takes an already-buffered clock and contains no
 vendor primitives, so the entire receiver simulates in plain Icarus. Only the
@@ -135,25 +135,46 @@ Each step is verifiable before the next one is wired.
    climbs and `DGRAMS` stays 0 (esp_ready is pulled down).
 3. **Internal pattern -> QSPI -> ESP -> PC.** Wire JC to the ESP, flash
    `-DBENCH_INGRESS=qspi`. Debugs the QSPI link with SPI out of the way
-   (`MODE` bit 2). The host's CHECK pattern must show zero bit errors.
-4. **Emulator through the jumpers.** `MODE` bit 2 clear. Sweep `PHASE_SELECT`
-   0..11 (`python3 -m chain.sweep --phase-scan`) and take the middle of the run
-   of settings with zero bit errors. In simulation the clean window is 2 wide.
+   (`MODE` bit 2): `python3 -m chain.sweep --serial <arty uart> --rates 2000`.
+   The host's CHECK pattern must show zero bit errors.
+4. **Emulator through the jumpers.** `MODE` bit 2 clear:
+   `python3 -m chain.sweep --serial <arty uart> --phase-scan` scores every frame
+   against the emulator's playback memory, so a phase either recovers all 128
+   channels exactly or shows bit errors. Take the middle of the clean run. On
+   the bench the window is PHASE_SELECT 5-6 (simulation: 3-4; the extra is pad
+   and jumper delay). Then `--source emulator --rates ...` for throughput.
 5. **Codec on.** Not written yet; the flag and the frame type exist for it.
 
 ## Driving the board by hand
 
 The control interface is text on the Arty's onboard USB-UART, so it works from a
-terminal before any host tool is involved:
+terminal before any host tool is involved. The board ends a command on line
+feed only and never echoes, so in `screen` type blind and press **Ctrl-J**, not
+Enter (Enter sends a carriage return, which the board drops). Anything typed
+before stays in the board's line buffer until a line feed: if the first reply
+is `err`, press Ctrl-J once and retry.
 
 ```
-screen /dev/tty.usbserial-XXXXXXXB 115200
+screen /dev/cu.usbserial-XXXXXXXX1 115200    # the Arty's second port, on a Mac
 R 1f            -> 1f=1c100001      which bitstream is loaded
 W 01 0000bb80   -> ok               sample period, ticks at 96 MHz
 W 03 00000004   -> ok               MODE: use the internal pattern
 W 00 00000001   -> ok               run
 R 13            -> 13=00000000      overruns
 ```
+
+## FPGA behaviour the host works around
+
+Both are in the RTL as built; the host's scoring copes, and a later RTL change
+can remove them.
+
+- **The pattern does not restart with seq.** `clear_counters` zeroes the frame
+  counter, but the pattern generator carries on, so a run after the first
+  carries pattern index seq + (samples generated before). `metrics` finds that
+  offset per run (`accuracy.pattern_offset`) and holds every frame to it.
+- **A partly built datagram survives stop/start.** The first datagram of a run
+  can carry the previous run's last frames ahead of this run's first.
+  `metrics` drops them and reports `loss.stale_frames`.
 
 ## Known ceilings in the current configuration
 

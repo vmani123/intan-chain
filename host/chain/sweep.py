@@ -17,7 +17,7 @@ import pathlib
 import time
 
 from . import contract as C
-from . import frame, metrics, pattern, receiver
+from . import emulator, frame, metrics, pattern, receiver
 from .ctrl import Ctrl, FakeSerial
 
 RESULTS = pathlib.Path(__file__).resolve().parents[2] / "docs" / "results"
@@ -33,11 +33,13 @@ def period_for(rate_hz: int) -> int:
 
 
 def synth_capture(duration_s: float, rate_hz: int, realistic: bool,
-                  drop_every: int = 0) -> list[tuple[float, bytes]]:
+                  drop_every: int = 0, playback=None) -> list[tuple[float, bytes]]:
     """Traffic for --dry-run: real bytes, fake radio.
 
     Built in process rather than pushed through loopback so the dry run cannot
     fail on an unrelated socket; the socket path is covered by the receiver test.
+    With `playback`, frames carry the emulator's memory instead of the pattern,
+    at an arbitrary playback offset, as a real-SPI run would.
     """
     n_dgram = max(1, int(duration_s * rate_hz / C.FRAMES_PER_DGRAM))
     stream = pattern.PatternStream(realistic=realistic)
@@ -48,9 +50,10 @@ def synth_capture(duration_s: float, rate_hz: int, realistic: bool,
         frames = []
         for _ in range(C.FRAMES_PER_DGRAM):
             t_cap = (seq * period_for(rate_hz)) & 0xFFFFFFFF
+            values = stream.next_sample() if playback is None else playback.expected(seq + 17)
             frames.append(frame.build_frame(
-                seq, stream.next_sample(), t_cap=t_cap, t_tx=(t_cap + 640) & 0xFFFFFFFF,
-                flags=C.FLAG_REALISTIC if realistic else 0))
+                seq, values, t_cap=t_cap, t_tx=(t_cap + 640) & 0xFFFFFFFF,
+                flags=C.FLAG_REALISTIC if realistic and playback is None else 0))
             seq += 1
         if drop_every and d % drop_every == 0:
             continue  # pretend the radio ate this one
@@ -66,37 +69,49 @@ def run_cell(ctrl, args, rate_hz: int, phase: int | None = None) -> dict:
     ctrl is None in listen-only mode: nothing is configured or read back.
     """
     period = period_for(rate_hz)
-    if ctrl is not None:
-        mode = (C.FLAG_REALISTIC if args.realistic else 0) | 0x4  # bit2: internal pattern
-        ctrl.write("SAMPLE_PERIOD", period)
-        ctrl.write("MODE", mode)
-        if phase is not None:
-            ctrl.write("PHASE_SELECT", phase)
-        ctrl.clear_counters()
-        ctrl.set_run(True)
+    emu = args.source == "emulator"
+    playback = args.playback if emu else None
+    # The data socket is open before the FPGA starts, so the run's first
+    # datagrams wait in the kernel instead of arriving to nothing.
+    sock = None if args.dry_run else receiver.open_socket(args.udp_port)
     try:
-        if args.dry_run:
-            raw = synth_capture(args.seconds, rate_hz, args.realistic, args.drop_every)
-            air = [1800.0, 2100.0, 5400.0]  # plausible placeholders, no radio here
-            # Keep the fake board's counters consistent with the fake traffic,
-            # so the counter read path is exercised with numbers that mean
-            # something rather than with zeros.
-            built = max(1, int(args.seconds * rate_hz / C.FRAMES_PER_DGRAM))
-            if ctrl is not None:
-                ctrl.ser.regs[C.REG["DGRAMS"]] = built
-                ctrl.ser.regs[C.REG["FRAMES"]] = built * C.FRAMES_PER_DGRAM
-        else:
-            th, air = None, []
-            if args.target:
-                th, air = receiver.probe_in_background(
-                    args.target, port=args.echo_port,
-                    count=max(1, int(args.seconds / 0.05)), interval=0.05)
-            raw = receiver.capture(args.seconds, port=args.udp_port)
-            if th is not None:
-                th.join(timeout=2.0)  # let the last probe land before it is scored
-    finally:
         if ctrl is not None:
-            ctrl.set_run(False)
+            # bit2 selects the internal pattern; clear, the receiver reads the
+            # RHD2164 bus (here, the emulator) and PHASE_SELECT matters.
+            mode = 0x0 if emu else (C.FLAG_REALISTIC if args.realistic else 0) | 0x4
+            ctrl.write("SAMPLE_PERIOD", period)
+            ctrl.write("MODE", mode)
+            if phase is not None:
+                ctrl.write("PHASE_SELECT", phase)
+            ctrl.clear_counters()
+            ctrl.set_run(True)
+        try:
+            if args.dry_run:
+                raw = synth_capture(args.seconds, rate_hz, args.realistic, args.drop_every,
+                                    playback=playback)
+                air = [1800.0, 2100.0, 5400.0]  # plausible placeholders, no radio here
+                # Keep the fake board's counters consistent with the fake
+                # traffic, so the counter read path is exercised with numbers
+                # that mean something rather than with zeros.
+                built = max(1, int(args.seconds * rate_hz / C.FRAMES_PER_DGRAM))
+                if ctrl is not None:
+                    ctrl.ser.regs[C.REG["DGRAMS"]] = built
+                    ctrl.ser.regs[C.REG["FRAMES"]] = built * C.FRAMES_PER_DGRAM
+            else:
+                th, air = None, []
+                if args.target:
+                    th, air = receiver.probe_in_background(
+                        args.target, port=args.echo_port,
+                        count=max(1, int(args.seconds / 0.05)), interval=0.05)
+                raw = receiver.capture(args.seconds, sock=sock)
+                if th is not None:
+                    th.join(timeout=2.0)  # let the last probe land before it is scored
+        finally:
+            if ctrl is not None:
+                ctrl.set_run(False)
+    finally:
+        if sock is not None:
+            sock.close()
     counters = ctrl.counters() if ctrl is not None else None
 
     dgrams, malformed = [], 0
@@ -109,12 +124,12 @@ def run_cell(ctrl, args, rate_hz: int, phase: int | None = None) -> dict:
         dgrams.append((t, frames, trailer))
     if not dgrams:
         return {"rate_hz": rate_hz, "phase": phase, "sample_period": period,
-                "seconds": args.seconds, "counters": counters, "error": "no valid datagrams",
-                "malformed_datagrams": malformed}
+                "source": args.source, "seconds": args.seconds, "counters": counters,
+                "error": "no valid datagrams", "malformed_datagrams": malformed}
 
-    m = metrics.compute(dgrams, air_us=air, malformed=malformed)
+    m = metrics.compute(dgrams, air_us=air, malformed=malformed, golden=playback)
     m.update({"rate_hz": rate_hz, "phase": phase, "sample_period": period,
-              "realistic": args.realistic, "seconds": args.seconds,
+              "source": args.source, "realistic": args.realistic, "seconds": args.seconds,
               "dry_run": args.dry_run, "listen_only": args.listen_only,
               "counters": counters,
               "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S")})
@@ -151,6 +166,10 @@ def main(argv=None) -> int:
                     help="samples/s/channel to try")
     ap.add_argument("--seconds", type=float, default=10.0, help="capture per cell")
     ap.add_argument("--realistic", action="store_true", help="REALISTIC pattern instead of CHECK")
+    ap.add_argument("--source", choices=["pattern", "emulator"], default="pattern",
+                    help="pattern: the FPGA's internal test pattern (MODE bit2). emulator: the "
+                         "receiver reads the RHD2164 bus and frames are scored against the "
+                         "emulator's playback memory. --phase-scan always uses emulator")
     ap.add_argument("--phase-scan", action="store_true",
                     help="sweep PHASE_SELECT 0..11 at --phase-rate and report bit errors")
     ap.add_argument("--phase-rate", type=int, default=20000)
@@ -167,6 +186,9 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.listen_only and args.phase_scan:
         ap.error("--phase-scan writes PHASE_SELECT, which needs the control port")
+    if args.phase_scan:
+        args.source = "emulator"  # PHASE_SELECT does nothing to the internal pattern
+    args.playback = emulator.Playback() if args.source == "emulator" else None
 
     if args.listen_only:
         ctrl = None

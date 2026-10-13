@@ -15,16 +15,26 @@ PROBE_FMT = "<IQ"  # seq, host monotonic_ns at send
 PROBE_BYTES = struct.calcsize(PROBE_FMT)
 
 
+def open_socket(port: int = C.UDP_PORT) -> socket.socket:
+    """The data socket, bound, with a deep kernel buffer.
+
+    Open it before starting the source and hand it to capture(): datagrams
+    that arrive in between wait in the kernel instead of being lost.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # A big kernel buffer absorbs a Wi-Fi burst while this loop is in
+    # Python; without it a scheduling hiccup reads as radio loss.
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 << 20)
+    sock.bind(("", port))
+    return sock
+
+
 def capture(duration_s: float, port: int = C.UDP_PORT, sock=None,
             bufsize: int = 2048) -> list[tuple[float, bytes]]:
     """Collect (t_host_s, datagram) for duration_s. Pass `sock` to use your own."""
     own = sock is None
     if own:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # A big kernel buffer absorbs a Wi-Fi burst while this loop is in
-        # Python; without it a scheduling hiccup reads as radio loss.
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 << 20)
-        sock.bind(("", port))
+        sock = open_socket(port)
     out = []
     sock.settimeout(0.2)
     deadline = time.monotonic() + duration_s

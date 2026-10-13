@@ -28,12 +28,15 @@ def _stats(values: list[float]) -> dict | None:
     }
 
 
-def compute(dgrams, air_us=None, check_accuracy=True, malformed=0) -> dict:
+def compute(dgrams, air_us=None, check_accuracy=True, malformed=0, golden=None) -> dict:
     """dgrams: list of (t_host_s, frames, trailer) from frame.parse_datagram.
 
     air_us: one-way estimates from the echo probe, measured separately because
     they are the only leg that does not come from a single device's clock.
+    golden: an emulator.Playback to score real-SPI runs against the emulator's
+    memory; None scores against the internal test pattern.
     """
+    dgrams, stale = _drop_stale(dgrams)
     frames = [f for _t, fs, _tr in dgrams for f in fs]
     times = [t for t, _fs, _tr in dgrams]
 
@@ -89,6 +92,7 @@ def compute(dgrams, air_us=None, check_accuracy=True, malformed=0) -> dict:
         "frames_expected": span,
         "missing": missing,
         "missing_pct": 100.0 * missing / span if span else 0.0,
+        "stale_frames": stale,
         "reordered": reordered,
         "duplicates": duplicates,
         "malformed_datagrams": malformed,
@@ -98,15 +102,25 @@ def compute(dgrams, air_us=None, check_accuracy=True, malformed=0) -> dict:
     # gap in the sequence costs only the frames that went missing: the ones that
     # did arrive stay aligned.
     acc = {"checked": False, "values": 0, "value_errors": 0,
-           "bits": 0, "bit_errors": 0, "ber": None, "skipped_frames": 0}
+           "bits": 0, "bit_errors": 0, "ber": None, "skipped_frames": 0,
+           "pattern_offset": 0}
     if check_accuracy:
         acc["checked"] = True
+        if golden is None:
+            acc["source"] = "pattern"
+            offset = acc["pattern_offset"] = _pattern_offset(frames)
+            want_of = lambda f: pattern.expected_sample(f.seq + offset, f.realistic, f.n_ch)
+        else:
+            acc["source"] = "emulator"
+            del acc["pattern_offset"]
+            pos = acc["playback_offset"] = _playback_offset(frames, golden)
+            want_of = lambda f: golden.expected(f.seq + pos)
         for f in frames:
             if f.type != C.TYPE_RAW16:
                 acc["skipped_frames"] += 1  # a codec blob is not comparable here
                 continue
             got = f.samples()
-            want = pattern.expected_sample(f.seq, f.realistic, f.n_ch)
+            want = want_of(f)
             acc["values"] += len(got)
             acc["bits"] += 16 * len(got)
             for g, w in zip(got, want):
@@ -128,3 +142,62 @@ def compute(dgrams, air_us=None, check_accuracy=True, malformed=0) -> dict:
     }
 
     return {"throughput": throughput, "loss": loss, "accuracy": acc, "latency": latency}
+
+
+def _drop_stale(dgrams):
+    """Drop frames a run's first datagram carried over from the run before.
+
+    The FPGA finishes a partly built datagram across a stop and start, so the
+    first datagram of a capture can hold the previous run's last frames ahead
+    of this run's first (seen on the bench: seq 6043..6046, then 0). Frames of
+    the first datagram that do not run in sequence into its last frame are
+    removed and counted separately; they are neither this run's data nor loss.
+    """
+    if not dgrams:
+        return dgrams, 0
+    t, first, tr = dgrams[0]
+    cut = 0
+    for k in range(1, len(first)):
+        if first[k].seq != (first[k - 1].seq + 1) & U32:
+            cut = k
+    if not cut:
+        return dgrams, 0
+    return [(t, first[cut:], tr)] + list(dgrams[1:]), cut
+
+
+def _pattern_offset(frames, probe: int = 32) -> int:
+    """Pattern index minus seq for this run, 0 when the two start together.
+
+    clear_counters zeroes seq but the FPGA's pattern generator carries on, so a
+    run after the first carries pattern index seq + (samples generated before).
+    Voted over the first CHECK frames, so one corrupt frame cannot pick it.
+    REALISTIC values do not identify their index on their own and are scored
+    at offset 0.
+    """
+    votes: dict[int, int] = {}
+    n = 0
+    for f in frames:
+        if f.type != C.TYPE_RAW16 or f.realistic:
+            continue
+        i = pattern.check_index(f.samples())
+        if i is not None:
+            off = (i - f.seq) % pattern.PERIOD
+            votes[off] = votes.get(off, 0) + 1
+        n += 1
+        if n >= probe:
+            break
+    return max(votes, key=votes.get) if votes else 0
+
+
+def _playback_offset(frames, golden, probe: int = 32) -> int:
+    """(emulator playback position - seq) mod its length, voted like _pattern_offset."""
+    from .emulator import SAMPLES
+    votes: dict[int, int] = {}
+    for f in frames[:probe]:
+        if f.type != C.TYPE_RAW16:
+            continue
+        p = golden.locate(f.samples())
+        if p is not None:
+            off = (p - f.seq) % SAMPLES
+            votes[off] = votes.get(off, 0) + 1
+    return max(votes, key=votes.get) if votes else 0

@@ -90,3 +90,44 @@ def test_latency_legs_including_the_32_bit_wrap():
 
 def test_air_latency_is_absent_when_the_probe_did_not_run():
     assert metrics.compute(clean(2))["latency"]["air_us"] is None
+
+
+def dgram_at(seqs, t_host, index_of=lambda s: s):
+    """A datagram with arbitrary seqs, each frame carrying the CHECK pattern at index_of(seq)."""
+    frames = [F.build_frame(s, pattern.expected_sample(index_of(s))) for s in seqs]
+    return (t_host,) + F.parse_datagram(F.build_datagram(frames))
+
+
+def test_accuracy_finds_the_pattern_offset_after_a_counter_clear():
+    # clear_counters restarts seq at 0, but the FPGA's pattern generator carries
+    # on, so every run after the first carries pattern index seq + (samples it
+    # generated before). Seen on the bench as an offset of 6047.
+    dgrams = [dgram_at(range(5 * d, 5 * d + 5), d * 0.001, index_of=lambda s: s + 6047)
+              for d in range(4)]
+    acc = metrics.compute(dgrams)["accuracy"]
+    assert acc["pattern_offset"] == 6047
+    assert acc["bit_errors"] == 0 and acc["value_errors"] == 0
+
+
+def test_a_corrupted_value_still_counts_at_an_offset():
+    dgrams = [dgram_at(range(5 * d, 5 * d + 5), d * 0.001, index_of=lambda s: s + 300)
+              for d in range(4)]
+    f = dgrams[2][1][3]
+    bad = list(f.samples()); bad[7] ^= 0x0101
+    dgrams[2][1][3] = F.parse_frame(F.build_frame(f.seq, bad))
+    acc = metrics.compute(dgrams)["accuracy"]
+    assert acc["pattern_offset"] == 300
+    assert acc["value_errors"] == 1 and acc["bit_errors"] == 2
+
+
+def test_stale_frames_from_the_previous_run_are_dropped_not_lost():
+    # The FPGA finishes a partly built datagram across stop/start, so a run's
+    # first datagram can hold the previous run's last frames (seq 6043..6046)
+    # ahead of this run's seq 0. Counting from 6043 made every later frame look
+    # four billion frames away.
+    first = dgram_at([6043, 6044, 6045, 6046, 0], 0.0, index_of=lambda s: s if s < 6043 else s + 999)
+    rest = [dgram_at(range(5 * d - 4, 5 * d + 1), d * 0.001) for d in range(1, 4)]
+    m = metrics.compute([first] + rest)
+    assert m["loss"]["stale_frames"] == 4
+    assert m["loss"]["missing"] == 0 and m["loss"]["frames_received"] == 16
+    assert m["accuracy"]["bit_errors"] == 0
