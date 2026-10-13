@@ -1,0 +1,71 @@
+{
+ "throughput": {
+  "payload_bytes": 2534400,
+  "wire_bytes": 2756160,
+  "elapsed_s": 4.990735416067764,
+  "bytes_per_s": 507820.9499626954,
+  "mbit_per_s": 4.062567599701564,
+  "frames_per_s": 1983.675585791779,
+  "samples_per_s_per_ch": 1983.675585791779
+ },
+ "loss": {
+  "datagrams": 1980,
+  "frames_received": 9900,
+  "frames_unique": 9900,
+  "frames_expected": 9900,
+  "missing": 0,
+  "missing_pct": 0.0,
+  "stale_frames": 0,
+  "reordered": 0,
+  "duplicates": 0,
+  "malformed_datagrams": 0
+ },
+ "accuracy": {
+  "checked": true,
+  "values": 1267200,
+  "value_errors": 0,
+  "bits": 20275200,
+  "bit_errors": 0,
+  "ber": 0.0,
+  "skipped_frames": 0,
+  "pattern_offset": 45428,
+  "source": "pattern"
+ },
+ "latency": {
+  "fpga_us": {
+   "n": 9900,
+   "min": 282.125,
+   "median": 1144.125,
+   "p99": 2006.125,
+   "max": 2006.125
+  },
+  "esp_us": {
+   "n": 1980,
+   "min": 11.0,
+   "median": 15.0,
+   "p99": 193.0,
+   "max": 595.0
+  },
+  "air_us": null
+ },
+ "rate_hz": 2000,
+ "phase": 5,
+ "sample_period": 48000,
+ "source": "pattern",
+ "mode": 4,
+ "realistic": false,
+ "seconds": 5.0,
+ "dry_run": false,
+ "listen_only": false,
+ "counters": {
+  "FRAMES": 10207,
+  "DGRAMS": 2041,
+  "FIFO_HIGH": 1,
+  "OVERRUNS": 0,
+  "STALLS": 0
+ },
+ "timestamp": "2026-10-13T02:54:51",
+ "bench": "single-board Arty S7-25, chain_arty_s7_25_div6.bit (QSPI 8 MHz), ESP32-S3 qspi ingress (GPIO matrix), home Wi-Fi, 2.4 GHz ch 1",
+ "capture": "pattern_2k",
+ "note": "scored offline from the raw capture with the current metrics."
+}

@@ -200,6 +200,12 @@ Not verified, and this is the honest list:
 
 - The v5.4 build is CI's job; it has not been run locally.
 - Why the IOMUX route fails (above).
+- The ready-line race in `drive_ready()` is real: at 8 kS/s (Wi-Fi saturated)
+  one datagram reached the host twice, from two ESP receives 13.7 ms apart,
+  with identical FPGA `t_tx` stamps. That is a segment sent into no armed
+  buffer, followed by a buffer completing with stale contents. The fix
+  proposed in `drive_ready()`'s comment, driving the line from the driver's
+  receive callbacks, has not been written yet.
 - The 10 us gap the FPGA leaves after each WR_DONE, for the driver's ISR to
   re-arm the receive DMA, is an estimate of interrupt latency with Wi-Fi on
   the same core. Periodic seq gaps on the host with `STALLS` at zero would

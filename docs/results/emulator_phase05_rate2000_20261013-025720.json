@@ -1,0 +1,71 @@
+{
+ "throughput": {
+  "payload_bytes": 2562560,
+  "wire_bytes": 2786784,
+  "elapsed_s": 5.002240750007331,
+  "bytes_per_s": 512282.4206324424,
+  "mbit_per_s": 4.09825936505954,
+  "frames_per_s": 2001.1032055954781,
+  "samples_per_s_per_ch": 2001.1032055954781
+ },
+ "loss": {
+  "datagrams": 2002,
+  "frames_received": 10010,
+  "frames_unique": 10010,
+  "frames_expected": 10010,
+  "missing": 0,
+  "missing_pct": 0.0,
+  "stale_frames": 0,
+  "reordered": 0,
+  "duplicates": 0,
+  "malformed_datagrams": 0
+ },
+ "accuracy": {
+  "checked": true,
+  "values": 1281280,
+  "value_errors": 0,
+  "bits": 20500480,
+  "bit_errors": 0,
+  "ber": 0.0,
+  "skipped_frames": 0,
+  "source": "emulator",
+  "playback_offset": 80
+ },
+ "latency": {
+  "fpga_us": {
+   "n": 10010,
+   "min": 282.125,
+   "median": 1144.125,
+   "p99": 2006.125,
+   "max": 2006.125
+  },
+  "esp_us": {
+   "n": 2002,
+   "min": 11.0,
+   "median": 14.0,
+   "p99": 192.0,
+   "max": 826.0
+  },
+  "air_us": null
+ },
+ "rate_hz": 2000,
+ "phase": 5,
+ "sample_period": 48000,
+ "source": "emulator",
+ "mode": 0,
+ "realistic": false,
+ "seconds": 5.0,
+ "dry_run": false,
+ "listen_only": false,
+ "counters": {
+  "FRAMES": 10047,
+  "DGRAMS": 2009,
+  "FIFO_HIGH": 1,
+  "OVERRUNS": 0,
+  "STALLS": 0
+ },
+ "timestamp": "2026-10-13T02:57:20",
+ "bench": "single-board Arty S7-25, chain_arty_s7_25_div6.bit (QSPI 8 MHz), ESP32-S3 qspi ingress (GPIO matrix), home Wi-Fi, 2.4 GHz ch 1",
+ "capture": "emu_p5_2k_rearm",
+ "note": "scored offline from the raw capture with the current metrics. after the ESP re-arm fix"
+}

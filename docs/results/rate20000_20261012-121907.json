@@ -1,0 +1,57 @@
+{
+ "throughput": {
+  "payload_bytes": 26853120,
+  "wire_bytes": 29202768,
+  "elapsed_s": 9.998713999986649,
+  "bytes_per_s": 2685657.3755420805,
+  "mbit_per_s": 21.485259004336644,
+  "frames_per_s": 10490.849123211252,
+  "samples_per_s_per_ch": 10490.849123211252
+ },
+ "loss": {
+  "datagrams": 20979,
+  "frames_received": 104895,
+  "frames_unique": 104895,
+  "frames_expected": 105745,
+  "missing": 850,
+  "missing_pct": 0.8038205116081139,
+  "reordered": 0,
+  "duplicates": 0,
+  "malformed_datagrams": 0
+ },
+ "accuracy": {
+  "checked": true,
+  "values": 13426560,
+  "value_errors": 0,
+  "bits": 214824960,
+  "bit_errors": 0,
+  "ber": 0.0,
+  "skipped_frames": 0
+ },
+ "latency": {
+  "fpga_us": {
+   "n": 104895,
+   "min": 0.0,
+   "median": 0.0,
+   "p99": 0.0,
+   "max": 0.0
+  },
+  "esp_us": {
+   "n": 20979,
+   "min": 2567.0,
+   "median": 5764.0,
+   "p99": 11310.0,
+   "max": 25831.0
+  },
+  "air_us": null
+ },
+ "rate_hz": 20000,
+ "phase": null,
+ "sample_period": 4800,
+ "realistic": false,
+ "seconds": 10.0,
+ "dry_run": false,
+ "listen_only": true,
+ "counters": null,
+ "timestamp": "2026-10-12T12:19:07"
+}

@@ -1,0 +1,63 @@
+{
+ "throughput": {
+  "payload_bytes": 5117440,
+  "wire_bytes": 5565216,
+  "elapsed_s": 10.007296374998987,
+  "bytes_per_s": 511370.88462622033,
+  "mbit_per_s": 4.090967077009763,
+  "frames_per_s": 1997.5425180711732,
+  "samples_per_s_per_ch": 1997.5425180711732
+ },
+ "loss": {
+  "datagrams": 3998,
+  "frames_received": 19990,
+  "frames_unique": 19990,
+  "frames_expected": 19990,
+  "missing": 0,
+  "missing_pct": 0.0,
+  "reordered": 0,
+  "duplicates": 0,
+  "malformed_datagrams": 0
+ },
+ "accuracy": {
+  "checked": true,
+  "values": 2558720,
+  "value_errors": 0,
+  "bits": 40939520,
+  "bit_errors": 0,
+  "ber": 0.0,
+  "skipped_frames": 0
+ },
+ "latency": {
+  "fpga_us": {
+   "n": 19990,
+   "min": 0.0,
+   "median": 0.0,
+   "p99": 0.0,
+   "max": 0.0
+  },
+  "esp_us": {
+   "n": 3998,
+   "min": 11.0,
+   "median": 15.0,
+   "p99": 367.0,
+   "max": 757.0
+  },
+  "air_us": {
+   "n": 200,
+   "min": 2305.896,
+   "median": 3692.34375,
+   "p99": 16771.5625,
+   "max": 19782.458
+  }
+ },
+ "rate_hz": 2000,
+ "phase": null,
+ "sample_period": 48000,
+ "realistic": false,
+ "seconds": 10.0,
+ "dry_run": false,
+ "listen_only": true,
+ "counters": null,
+ "timestamp": "2026-10-12T12:20:48"
+}

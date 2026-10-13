@@ -14,6 +14,10 @@ uses the single-board build, described below.
 It exists to produce three numbers honestly: **throughput**, **latency** and
 **accuracy**. Everything else was left out on purpose.
 
+**Read first:** [docs/report-single-board-chain.md](docs/report-single-board-chain.md),
+the full write-up: architecture, verification, bench results, what limits
+performance, and open issues.
+
 ## Run everything that does not need hardware
 
 ```bash
@@ -138,7 +142,7 @@ Each step is verifiable before the next one is wired.
    (`MODE` bit 2): `python3 -m chain.sweep --serial <arty uart> --rates 2000`.
    The host's CHECK pattern must show zero bit errors.
 4. **Emulator through the jumpers.** `MODE` bit 2 clear:
-   `python3 -m chain.sweep --serial <arty uart> --phase-scan` scores every frame
+   `python3 -m chain.sweep --serial <arty uart> --phase-scan --phase-rate 2000` scores every frame
    against the emulator's playback memory, so a phase either recovers all 128
    channels exactly or shows bit errors. Take the middle of the clean run. On
    the bench the window is PHASE_SELECT 5-6 (simulation: 3-4; the extra is pad
