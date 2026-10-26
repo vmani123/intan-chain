@@ -17,14 +17,15 @@ import pathlib
 import time
 
 from . import contract as C
-from . import emulator, frame, metrics, pattern, receiver
+from . import emulator, frame, metrics, pattern, receiver, rhd2164
 from .ctrl import Ctrl, FakeSerial
 
 RESULTS = pathlib.Path(__file__).resolve().parents[2] / "docs" / "results"
 
-# Floor from CONTRACTS.md section 4: below this the sequencer free-runs and
-# OVERRUNS climbs, which is a source limit and not a radio result.
-MIN_PERIOD = C.CMDS_PER_SAMPLE * 16 * C.OVERSAMPLE
+# Floor from CONTRACTS.md section 4 (35 cycles x CMD_TICKS at SPI_DIV 0, plus
+# overhead): below this the sequencer free-runs and OVERRUNS climbs, which is a
+# source limit and not a radio result.
+MIN_PERIOD = rhd2164.min_sample_period(0)
 MAX_RATE = C.SYS_CLK_HZ // MIN_PERIOD
 
 
@@ -171,7 +172,7 @@ def main(argv=None) -> int:
                          "receiver reads the RHD2164 bus and frames are scored against the "
                          "emulator's playback memory. --phase-scan always uses emulator")
     ap.add_argument("--phase-scan", action="store_true",
-                    help="sweep PHASE_SELECT 0..11 at --phase-rate and report bit errors")
+                    help=f"sweep PHASE_SELECT 0..{C.PHASE_MAX} at --phase-rate and report bit errors")
     ap.add_argument("--phase-rate", type=int, default=20000)
     ap.add_argument("--udp-port", type=int, default=C.UDP_PORT)
     ap.add_argument("--echo-port", type=int, default=C.ECHO_PORT)
@@ -197,7 +198,7 @@ def main(argv=None) -> int:
     with (ctrl if ctrl is not None else contextlib.nullcontext()):
         if ctrl is not None:
             ctrl.check_id()
-        cells = ([(args.phase_rate, p) for p in range(12)] if args.phase_scan
+        cells = ([(args.phase_rate, p) for p in range(C.PHASE_MAX + 1)] if args.phase_scan
                  else [(r, None) for r in args.rates])
         results = []
         for rate, phase in cells:

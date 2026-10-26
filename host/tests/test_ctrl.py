@@ -69,3 +69,23 @@ def test_unexpected_write_ack_is_caught(ctrl):
     ctrl.ser.reply_override = "01=00000001"
     with pytest.raises(CtrlError, match="unexpected reply"):
         ctrl.write("SAMPLE_PERIOD", 1)
+
+
+def test_diagnostic_list_registers_are_writable_counters_are_not(ctrl):
+    for name in ("DIAG_PTR", "DIAG_CMD", "DIAG_LEN", "DIAG_CTRL", "SPI_DIV"):
+        ctrl.write(name, 1)
+    for name in ("SPI_CYCLES", "LINK_ERR0", "MISO_STAT", "CAPS", "DIAG_RES0", "DIAG_RAW1_2"):
+        with pytest.raises(CtrlError, match="rejected"):
+            ctrl.write(name, 1)
+
+
+def test_read_many_is_one_read_per_register(ctrl):
+    ctrl.ser.regs[C.REG["FRAMES"]] = 7
+    got = ctrl.read_many(("FRAMES", 0x1F))
+    assert got == {"FRAMES": 7, 0x1F: C.ID_EXPECTED}
+    assert ctrl.ser.log == ["R 10", "R 1f"]
+
+
+def test_resync_discards_whatever_the_board_says_to_a_bare_newline(ctrl):
+    ctrl.resync(settle=0)
+    assert ctrl.read("ID") == C.ID_EXPECTED

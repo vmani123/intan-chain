@@ -6,7 +6,11 @@ what section 4 promises.
 """
 from . import contract as C
 
-READ_ONLY = 0x10  # addresses at or above this are counters and the ID
+READ_ONLY = 0x10  # addresses 0x10..0x1f are counters, status and the ID
+# The diagnostic list registers (0x20..0x23) sit above the counters but are
+# read/write; everything else at or above READ_ONLY answers `err` to a write.
+WRITABLE = frozenset(a for a in C.REG.values() if a < READ_ONLY) | frozenset(
+    C.REG[n] for n in ("DIAG_PTR", "DIAG_CMD", "DIAG_LEN", "DIAG_CTRL") if n in C.REG)
 COUNTERS = ("FRAMES", "DGRAMS", "FIFO_HIGH", "OVERRUNS", "STALLS")
 
 
@@ -86,6 +90,26 @@ class Ctrl:
     def counters(self) -> dict:
         return {name: self.read(name) for name in COUNTERS}
 
+    def read_many(self, regs) -> dict:
+        """{name or address: value}, one round trip each.
+
+        Deliberately sequential: the board parses a line only while it is not
+        sending a reply, so lines sent back to back would be dropped.
+        """
+        return {reg: self.read(reg) for reg in regs}
+
+    def resync(self, settle: float = 0.05) -> None:
+        """Terminate any half-typed line on the board and drop what it says back.
+
+        Someone at `screen` may have left bytes in the board's line buffer; the
+        first real command would then be parsed as garbage and answer `err`.
+        """
+        import time
+        self.ser.write(b"\n")
+        if settle:
+            time.sleep(settle)
+        self.ser.reset_input_buffer()
+
     def clear_counters(self) -> None:
         self.write("CTRL", self.read("CTRL") | 0x2)  # bit1 is self-clearing
 
@@ -146,7 +170,7 @@ class FakeSerial:
                 return f"{addr:02x}={self.regs[addr]:08x}"
             if len(parts) == 3 and parts[0] == "W" and len(parts[1]) == 2 and len(parts[2]) == 8:
                 addr, val = int(parts[1], 16), int(parts[2], 16)
-                if addr not in self.regs or addr >= READ_ONLY:
+                if addr not in self.regs or addr not in WRITABLE:
                     return "err"  # counters and ID are read-only
                 if addr == C.REG["CTRL"] and val & 0x2:
                     for name in COUNTERS:

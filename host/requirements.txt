@@ -1,2 +1,5 @@
 pyserial>=3.5   # UART control interface only; imported lazily inside Ctrl
 pytest>=7.0     # tests
+# optional, chain.viewer drawing only (imported lazily):
+# matplotlib>=3.5
+# numpy>=1.21
