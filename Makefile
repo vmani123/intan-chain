@@ -1,5 +1,5 @@
 # intan-chain -- everything runnable with no hardware is behind `make check`.
-.PHONY: all check contract check-contract vectors sim host-test lint clean help bit bit-chain bit-rx bit-rx-boolean bit-emu prog
+.PHONY: all check contract check-contract vectors sim host-test lint clean help bit bit-headstage bit-chain bit-rx bit-rx-boolean bit-emu prog
 
 # Vivado must be on PATH (source <Vivado>/settings64.sh), or pass VIVADO=/path/to/vivado.
 VIVADO ?= vivado
@@ -17,6 +17,7 @@ help:
 	@echo "make vectors        regenerate the golden pattern vectors for the RTL testbench"
 	@echo "make sim            FPGA testbenches only (Icarus Verilog)"
 	@echo "make host-test      host Python tests only (pytest)"
+	@echo "make bit-headstage  receiver -> real RHD2164s on Pmod JA, Arty S7-25 -> fpga/bitstreams/headstage_arty_s7_25[_divN].bit"
 	@echo "make bit-chain      single-board bench, Arty S7-25 -> fpga/bitstreams/chain_arty_s7_25[_divN].bit"
 	@echo "                    QSPI_DIV=6 make bit-chain builds with an 8 MHz QSPI clock"
 	@echo "make bit            bench bitstreams (Vivado): receiver on Boolean + emulator on Arty S7-25"
@@ -50,6 +51,9 @@ host-test:
 
 bit: bit-rx-boolean bit-emu
 
+bit-headstage:
+	$(VIVADO_BATCH) -log ../headstage.log -tclargs headstage
+
 bit-chain:
 	$(VIVADO_BATCH) -log ../chain.log -tclargs chain
 
@@ -65,11 +69,13 @@ bit-emu:
 prog:
 	mkdir -p $(VIVADO_DIR) && cd $(VIVADO_DIR) && $(VIVADO) -mode batch -nojournal -nolog -source ../program.tcl $(if $(PROG),-tclargs $(PROG))
 
+# One recipe line, so "not installed" really does skip: an `exit 0` on a line
+# of its own only ends that line's shell.
 lint:
-	@command -v verilator >/dev/null 2>&1 || { echo "verilator not installed; skipping"; exit 0; }
-	verilator --lint-only -Wall -Wno-DECLFILENAME \
+	@if ! command -v verilator >/dev/null 2>&1; then echo "verilator not installed; skipping"; \
+	else verilator --lint-only -Wall -Wno-DECLFILENAME \
 	    -Ifpga/rtl/rx -Ifpga/rtl/gen \
-	    fpga/rtl/rx/rx_top.sv --top-module rx_top
+	    fpga/rtl/rx/rx_top.sv --top-module rx_top; fi
 
 clean:
 	rm -f fpga/sim/*.vvp fpga/sim/*.vcd

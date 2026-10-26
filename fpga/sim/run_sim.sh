@@ -14,6 +14,7 @@ IV="iverilog -g2012"
 
 RTL_RX="fpga/rtl/rx/spi_master.sv
         fpga/rtl/rx/miso_phase_select.sv
+        fpga/rtl/rx/diag_mem.sv
         fpga/rtl/rx/frame_builder.sv
         fpga/rtl/rx/dgram_mem.sv
         fpga/rtl/rx/slot_fifo.sv
@@ -91,6 +92,14 @@ run_tb tb_rx_top \
 run_tb tb_chain_arty_s7_25 \
     fpga/sim/tb_chain_arty_s7_25.sv fpga/sim/qspi_hd_monitor.sv \
     fpga/sim/unisim_stubs.sv fpga/boards/chain_arty_s7_25_top.sv \
+    fpga/rtl/rx/rx_top.sv fpga/rtl/gen/pattern_gen.sv \
+    $RTL_RX $EMU
+
+# The headstage bitstream: real chips behind a modelled converter on JA,
+# the on-die emulator for the loopback self-test, no ESP.
+run_tb tb_headstage_arty_s7_25 \
+    fpga/sim/tb_headstage_arty_s7_25.sv \
+    fpga/sim/unisim_stubs.sv fpga/boards/headstage_arty_s7_25_top.sv \
     fpga/rtl/rx/rx_top.sv fpga/rtl/gen/pattern_gen.sv \
     $RTL_RX $EMU
 

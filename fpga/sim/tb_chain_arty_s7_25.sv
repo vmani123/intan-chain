@@ -18,7 +18,7 @@
 //
 //  (a) internal pattern over JC: bytes match the host's CHECK vectors and
 //      QSPI SCLK is 96 / 12 = 8 MHz.
-//  (b) real SPI through the jumpers: scan PHASE_SELECT 0..11, print which
+//  (b) real SPI through the jumpers: scan PHASE_SELECT 0..15, print which
 //      phases recover all 128 channels, then run at the middle of the widest
 //      clean run and demand that every frame matches the emulator's memory
 //      with the playback pointer advancing one sample per frame.
@@ -264,7 +264,7 @@ module tb_chain_arty_s7_25;
     // ---------------- the run ----------------
     integer d, f, ok, off, agree, first_off, p;
     integer hdr_bad, pay_bad, off_bad, agree_bad;
-    integer good [0:11];
+    integer good [0:15];
     integer best_lo, best_len, run_lo, run_len, phase;
     reg [31:0] v, seq;
     string s;
@@ -289,7 +289,7 @@ module tb_chain_arty_s7_25;
         // =================================================================
         $display("\n=== (a) internal pattern over Pmod JC, QSPI_DIV = %0d ===", QSPI_DIV);
         reg_rd("1f", v);
-        chk(v === 32'h1C10_0001, "ID register reads back over the board's UART pins");
+        chk(v === 32'h1C10_0002, "ID register reads back over the board's UART pins");
 
         // 8000 clocks per sample = 12 kS/s: one datagram per 40000 clocks,
         // comfortably more than the ~35000 one takes at 8 MHz.
@@ -323,7 +323,7 @@ module tb_chain_arty_s7_25;
         // =================================================================
         $display("\n=== (b) real SPI through the JA <-> JB jumpers ===");
         cmd_ok("W 03 00000000\n");
-        for (phase = 0; phase < 12; phase = phase + 1) begin
+        for (phase = 0; phase < 16; phase = phase + 1) begin
             $sformat(s, "W 02 %08x\n", phase);
             cmd_ok(s);
             cmd_ok("W 00 00000001\n");
@@ -341,7 +341,7 @@ module tb_chain_arty_s7_25;
 
         // The middle of the widest run of clean phases.
         best_lo = -1; best_len = 0; run_len = 0; run_lo = 0;
-        for (phase = 0; phase < 12; phase = phase + 1) begin
+        for (phase = 0; phase < 16; phase = phase + 1) begin
             if (good[phase]) begin
                 if (run_len == 0) run_lo = phase;
                 run_len = run_len + 1;

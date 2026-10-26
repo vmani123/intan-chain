@@ -146,7 +146,9 @@ module chain_arty_s7_25_top #(
         .qspi_dq_oe (qspi_oe),
         .esp_ready  (esp_ready),
 
-        .led        (rx_led)
+        .led        (rx_led),
+        .mode_o     (),
+        .link_good  ()
     );
 
     // ------------------------------------------------------------------

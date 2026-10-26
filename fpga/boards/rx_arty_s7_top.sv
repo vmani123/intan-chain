@@ -109,7 +109,9 @@ module rx_arty_s7_top #(
         .qspi_dq_oe (qspi_oe),
         .esp_ready  (esp_ready),
 
-        .led        (led)
+        .led        (led),
+        .mode_o     (),
+        .link_good  ()
     );
 
 endmodule

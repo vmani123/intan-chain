@@ -3,11 +3,14 @@
 #
 #   vivado -mode batch -nojournal -source fpga/vivado/build.tcl -tclargs <target>
 #
-# or `make bit-chain` / `make bit-rx-boolean` / `make bit-rx` / `make bit-emu`
+# or `make bit-headstage` / `make bit-chain` / `make bit-rx-boolean` / `make bit-rx` / `make bit-emu`
 # from the repo root.
 #
 #   chain       the single-board bench on the Arty S7-25 (xc7s25): emulator on
 #               Pmod JB, receiver on Pmod JA, jumpered; QSPI to the ESP on JC
+#   headstage   the receiver on the Arty S7-25 talking to two real RHD2164s
+#               through a converter board on Pmod JA; on-die emulator for the
+#               MODE bit3 self-test; QSPI to the ESP on JC
 #   rx_boolean  receiver (SPI in, QSPI out) on the RealDigital Boolean (xc7s50)
 #   rx          the same receiver on a Digilent Arty S7-50
 #   emu         rhd2164_top_se on the Arty S7-25: two emulated RHD2164s on Pmod JA
@@ -18,7 +21,7 @@
 # ============================================================================
 
 if {[llength $argv] != 1} {
-    error "usage: -tclargs chain|rx|rx_boolean|emu"
+    error "usage: -tclargs headstage|chain|rx|rx_boolean|emu"
 }
 set target [lindex $argv 0]
 set root   [file normalize [file join [file dirname [info script]] .. ..]]
@@ -57,9 +60,12 @@ switch -- $target {
             if {$::env(QSPI_DIV) != 2} { set bit ${base}_div$::env(QSPI_DIV).bit }
         }
     }
-    chain {
+    chain - headstage {
+        # Both are the S7-25 with the receiver and two emulator cores; they
+        # differ in whether the emulator has pins (chain, Pmod JB) or sits
+        # behind the receiver's loopback (headstage, real chips on Pmod JA).
         set part xc7s25csga324-1
-        set top  chain_arty_s7_25_top
+        set top  ${target}_arty_s7_25_top
         read_verilog -sv [lsort [glob [file join $root fpga rtl rx *.sv]]]
         read_verilog -sv [file join $root fpga rtl gen pattern_gen.sv]
         set up [file join $root fpga upstream rhd2164-emulator-rtl]
@@ -67,8 +73,8 @@ switch -- $target {
                    ddr_miso} {
             read_verilog -sv [file join $up $f.sv]
         }
-        read_verilog -sv [file join $root fpga boards chain_arty_s7_25_top.sv]
-        read_xdc         [file join $root fpga boards chain_arty_s7_25.xdc]
+        read_verilog -sv [file join $root fpga boards ${target}_arty_s7_25_top.sv]
+        read_xdc         [file join $root fpga boards ${target}_arty_s7_25.xdc]
         # Absolute paths, so $readmemh does not depend on the run directory.
         set mem [file join $root fpga upstream rhd2164-emulator-mem]
         set generics [list \
@@ -77,10 +83,10 @@ switch -- $target {
             "MEM_C1A=\"[file join $mem chip1_A.mem]\"" \
             "MEM_C1B=\"[file join $mem chip1_B.mem]\""]
         # Same divider naming as the rx targets: chain_arty_s7_25_div6.bit.
-        set bit chain_arty_s7_25.bit
+        set bit ${target}_arty_s7_25.bit
         if {[info exists ::env(QSPI_DIV)]} {
             lappend generics "QSPI_DIV=$::env(QSPI_DIV)"
-            if {$::env(QSPI_DIV) != 2} { set bit chain_arty_s7_25_div$::env(QSPI_DIV).bit }
+            if {$::env(QSPI_DIV) != 2} { set bit ${target}_arty_s7_25_div$::env(QSPI_DIV).bit }
         }
     }
     emu {
@@ -111,7 +117,7 @@ switch -- $target {
         lappend generics "FAST_CLK_DIV=$fdiv"
     }
     default {
-        error "unknown target '$target' (expected chain, rx, rx_boolean or emu)"
+        error "unknown target '$target' (expected headstage, chain, rx, rx_boolean or emu)"
     }
 }
 

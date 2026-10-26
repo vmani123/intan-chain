@@ -10,7 +10,7 @@
 // layout, or the FPGA and the ESP about the bus protocol, this is where it
 // shows up.
 //
-// FOUR THINGS ARE BEING PROVEN
+// FIVE THINGS ARE BEING PROVEN
 //
 //  (a) INTERNAL PATTERN. mode[2] = 1, no SPI involved. Payload is compared
 //      against fpga/sim/vectors/pattern_check.mem, which tools/gen_pattern_
@@ -32,6 +32,16 @@
 //
 //  (d) NOTHING IS EVER TORN. Every datagram, in every phase, must carry magic
 //      at all five frame offsets and be exactly 5 x 276 bytes long.
+//
+//  (e) BRING-UP DIAGNOSTICS, register by register over the UART: a diagnostic
+//      list (ROM read, WRITE echo and read-back) with its results and raw taps
+//      read back through DIAG_PTR, the raw taps decoded with the host's formula
+//      and compared with DIAG_RES; the link check climbing clean at a good
+//      phase and failing on every lane at a bad one; a `go` while running
+//      refused with nothing sent (SPI_CYCLES stays exactly 35 per sweep); the
+//      MISO monitor's seen-low / seen-high flags, including a MISO stuck low;
+//      and clear_counters zeroing all of it. tb_spi_master covers the same
+//      sequencer in more depth; this is the proof the register map reaches it.
 //
 // The UART divisor is shrunk to 16 so the configuration traffic does not
 // dominate the run; FRAMES_PER_DGRAM stays at the real value of 5 throughout.
@@ -58,6 +68,7 @@ module tb_rx_top;
     localparam int GOLD_SAMPLES = 8;
 
     localparam int WORKING_PHASE = 2;   // from tb_spi_master's phase scan
+    localparam int BAD_PHASE     = 10;  // far outside it
 
     integer errors = 0;
     integer checks = 0;
@@ -84,6 +95,14 @@ module tb_rx_top;
     wire qspi_cs_n, qspi_sclk, qspi_dq_oe;
     wire [3:0] qspi_dq_out;
     wire [2:0] led;
+    wire [31:0] mode_o;
+    wire link_good;
+
+    // MISO from the emulator, or held low to model a dead line.
+    wire emu_miso0, emu_miso1;
+    reg  miso0_stuck = 1'b0;
+    assign miso0 = miso0_stuck ? 1'b0 : emu_miso0;
+    assign miso1 = emu_miso1;
 
     rx_top #(.CLK_HZ(CLK_HZ), .BAUD(BAUD), .FRAMES_PER_DGRAM(FPD)) dut (
         .clk(clk), .rst_n(rst_n),
@@ -93,20 +112,20 @@ module tb_rx_top;
         .esp_ready(esp_ready),
         .qspi_cs_n(qspi_cs_n), .qspi_sclk(qspi_sclk),
         .qspi_dq_out(qspi_dq_out), .qspi_dq_oe(qspi_dq_oe),
-        .led(led)
+        .led(led), .mode_o(mode_o), .link_good(link_good)
     );
 
     rhd2164_emulator #(
         .MEM_A_FILE("fpga/upstream/rhd2164-emulator-mem/chip0_A.mem"),
         .MEM_B_FILE("fpga/upstream/rhd2164-emulator-mem/chip0_B.mem")
     ) chip0 (.clk(clk400), .rst_n(rst_n), .cs(spi_cs_n), .sclk(spi_sclk),
-             .mosi(spi_mosi), .miso(miso0));
+             .mosi(spi_mosi), .miso(emu_miso0));
 
     rhd2164_emulator #(
         .MEM_A_FILE("fpga/upstream/rhd2164-emulator-mem/chip1_A.mem"),
         .MEM_B_FILE("fpga/upstream/rhd2164-emulator-mem/chip1_B.mem")
     ) chip1 (.clk(clk400), .rst_n(rst_n), .cs(spi_cs_n), .sclk(spi_sclk),
-             .mosi(spi_mosi), .miso(miso1));
+             .mosi(spi_mosi), .miso(emu_miso1));
 
     // ---------------- QSPI monitor: the ESP32-S3's view of the bus ----------------
     integer   dg_consumed = 0;
@@ -353,8 +372,47 @@ module tb_rx_top;
         end
     endtask
 
+    // ---------------- diagnostic helpers ----------------
+    string line;
+
+    task automatic wr(input string a, input [31:0] val);
+        begin
+            $sformat(line, "W %s %08x\n", a, val);
+            cmd_ok(line, "register write");
+        end
+    endtask
+
+    function automatic [15:0] READ(input integer r);
+        READ = {2'b11, r[5:0], 8'h00};
+    endfunction
+    function automatic [15:0] WRITE(input integer r, input integer dv);
+        WRITE = {2'b10, r[5:0], dv[7:0]};
+    endfunction
+
+    // The host's decode, CONTRACTS.md section 6.
+    function automatic [15:0] host_dec(input [95:0] raw, input integer p,
+                                       input integer modb);
+        integer j;
+        begin
+            for (j = 0; j < 16; j = j + 1)
+                host_dec[15-j] = raw[p + 2*modb + 4*j];
+        end
+    endfunction
+
+    // DIAG_CTRL after a go: poll until busy clears.
+    task automatic diag_wait(output [31:0] st);
+        integer g;
+        begin
+            st = 32'd1;
+            for (g = 0; g < 50 && st[0]; g = g + 1) reg_rd("23", st);
+        end
+    endtask
+
     integer d, f, ok, off, agree, first_off, off_bad, agree_bad, base_dg, ndg;
-    reg [31:0] v;
+    integer k, nbad;
+    reg [31:0] v, v2, st, res0, res1, chk_n;
+    reg [95:0] raw0, raw1;
+    reg [15:0] dl [0:5];
 
     initial begin
         if ($test$plusargs("vcd")) begin
@@ -374,7 +432,9 @@ module tb_rx_top;
         $display("\n=== (a) internal pattern, CHECK mode, over QSPI ===");
         hard_reset();
         reg_rd("1f", v);
-        chk(v === 32'h1C10_0001, "ID register reads back over the UART");
+        chk(v === 32'h1C10_0002, "ID register reads back over the UART");
+        reg_rd("1e", v);
+        chk(v === 32'h004E_0002, "CAPS: 78 taps, no emulator, QSPI_DIV 2");
 
         cmd_ok("W 01 00000bb8\n", "set SAMPLE_PERIOD = 3000");
         cmd_ok("W 03 00000004\n", "set MODE = internal pattern, CHECK");
@@ -481,7 +541,37 @@ module tb_rx_top;
         chk(off_bad   == 0, "the playback pointer advances one sample per frame");
 
         // =================================================================
-        // A sweep takes 2800 clocks and a datagram slot drains in about 2440 per
+        // SPI_DIV = 1: every SPI tick is two clocks, so a sweep is 5880 clocks
+        // and 6000 is inside CONTRACTS.md's minimum period. Phase 2 is inside
+        // tb_spi_master's window at this divider too.
+        $display("\n=== (b2) real SPI at SPI_DIV = 1, SAMPLE_PERIOD = 6000 ===");
+        hard_reset();
+        cmd_ok("W 02 00000002\n", "set PHASE_SELECT = 2");
+        cmd_ok("W 04 00000001\n", "set SPI_DIV = 1");
+        cmd_ok("W 01 00001770\n", "set SAMPLE_PERIOD = 6000");
+        cmd_ok("W 03 00000000\n", "set MODE = external SPI");
+        cmd_ok("W 00 00000001\n", "set CTRL run");
+        agree_bad = 0;
+        for (d = 0; d < 2; d = d + 1) begin
+            wait_dgram(ok);
+            if (!ok) errors = errors + 1;
+            for (f = 0; f < FPD; f = f + 1) begin
+                check_header(f, 8'h00);
+                if (d > 0) begin
+                    spi_frame_offset(f, off, agree);
+                    if (agree != N_CH) agree_bad = agree_bad + 1;
+                end
+            end
+        end
+        cmd_ok("W 00 00000000\n", "clear CTRL run");
+        chk(seq_bad   == 0, "SPI_DIV 1: seq gapless");
+        chk(agree_bad == 0, "SPI_DIV 1: every frame matches all 128 emulator channels");
+        reg_rd("13", v);
+        chk(v === 32'd0, "SPI_DIV 1: OVERRUNS zero at 35 x 84 x 2 + overhead");
+        cmd_ok("W 04 00000000\n", "set SPI_DIV = 0");
+
+        // =================================================================
+        // A sweep takes 2940 clocks and a datagram slot drains in about 2440 per
         // frame, so at a 2000-clock period the source is the only thing that
         // cannot keep up: every other start is refused. That isolates the
         // missed-start counter from a FIFO overflow, which would also raise
@@ -555,6 +645,138 @@ module tb_rx_top;
         reg_rd("14", v); chk(v === 32'd0, "clear zeroes STALLS");
 
         chk(qspi_dq_oe === 1'b1, "dq_oe asserted: the link is master-driven");
+
+        // =================================================================
+        $display("\n=== (e) bring-up diagnostics over the UART ===");
+        hard_reset();
+        reg_rd("23", v);
+        chk(v === 32'd0, "DIAG_CTRL idle after reset");
+        $sformat(line, "W 02 %08x\n", WORKING_PHASE);
+        cmd_ok(line, "set PHASE_SELECT");
+
+        // A short list: two ROM reads, a WRITE and its read-back, two dummies.
+        dl[0] = READ(40); dl[1] = READ(59); dl[2] = WRITE(12, 8'hA5);
+        dl[3] = READ(12); dl[4] = READ(63); dl[5] = READ(63);
+        wr("20", 32'd0);
+        for (k = 0; k < 6; k = k + 1) wr("21", {16'hbeef, dl[k]});
+        reg_rd("20", v);
+        chk(v === 32'd6, "six DIAG_CMD writes step DIAG_PTR to 6");
+        wr("20", 32'd2);
+        reg_rd("21", v);
+        chk(v === {16'd0, dl[2]}, "DIAG_CMD reads entry 2 back, bits 15:0 only");
+        wr("22", 32'd6);
+        wr("23", 32'd1);
+        diag_wait(st);
+        chk(st === 32'd2, "DIAG_CTRL: done, not busy, not rejected");
+
+        nbad = 0;
+        for (k = 2; k < 6; k = k + 1) begin
+            wr("20", k);
+            reg_rd("24", res0);
+            reg_rd("25", res1);
+            $display("    cycle %0d: chip0 %08h  chip1 %08h", k, res0, res1);
+            case (k)
+                2: if (res0 !== 32'h0049_0049 || res1 !== 32'h0049_0049) nbad = nbad + 1;
+                3: if (res0 !== 32'h003A_0035 || res1 !== 32'h003A_0035) nbad = nbad + 1;
+                4: if (res0 !== 32'hFFA5_FFA5 || res1 !== 32'hFFA5_FFA5) nbad = nbad + 1;
+                5: if (res0 !== 32'h00A5_00A5 || res1 !== 32'h00A5_00A5) nbad = nbad + 1;
+                default: ;
+            endcase
+        end
+        chk(nbad == 0, "DIAG_RES: 'I', 53/58, {FF,a5} echo, {00,a5} read-back");
+
+        // Raw taps of the READ(59) cycle, decoded the way the host will.
+        wr("20", 32'd3);
+        reg_rd("24", res0);
+        reg_rd("25", res1);
+        reg_rd("26", raw0[31:0]);  reg_rd("27", raw0[63:32]); reg_rd("28", raw0[95:64]);
+        reg_rd("29", raw1[31:0]);  reg_rd("2a", raw1[63:32]); reg_rd("2b", raw1[95:64]);
+        chk(raw0[95:78] === 18'd0 && raw1[95:78] === 18'd0, "DIAG_RAW*_2 zero above tap 77");
+        chk({host_dec(raw0, WORKING_PHASE, 1), host_dec(raw0, WORKING_PHASE, 0)} === res0 &&
+            {host_dec(raw1, WORKING_PHASE, 1), host_dec(raw1, WORKING_PHASE, 0)} === res1,
+            "host decode of DIAG_RAW* == DIAG_RES at PHASE_SELECT");
+
+        // ---- the link check, at a good phase, with a go refused mid-run ----
+        cmd_ok("W 00 00000002\n", "clear counters");
+        chk(link_good === 1'b0, "link_good low after clear");
+        cmd_ok("W 01 00000bb8\n", "set SAMPLE_PERIOD = 3000");
+        cmd_ok("W 03 00000000\n", "set MODE = external SPI");
+        cmd_ok("W 00 00000001\n", "set CTRL run");
+        repeat (20000) @(posedge clk);
+        wr("23", 32'd1);                         // go while running
+        reg_rd("23", st);
+        chk(st === 32'd4, "go while run: rejected, not busy, not done");
+        chk(link_good === 1'b1, "link_good high while the checks pass");
+        repeat (20000) @(posedge clk);
+        cmd_ok("W 00 00000000\n", "clear CTRL run");
+        repeat (4000) @(posedge clk);
+        reg_rd("16", chk_n);
+        reg_rd("15", v);
+        $display("    LINK_CHECKS %0d, SPI_CYCLES %0d", chk_n, v);
+        chk(chk_n >= 32'd10, "LINK_CHECKS climbs, once per sweep");
+        chk(v === 32'd35 * chk_n, "SPI_CYCLES = 35 per sweep: the refused go sent nothing");
+        reg_rd("17", v);  reg_rd("18", v2);
+        chk(v === 32'd0 && v2 === 32'd0, "LINK_ERR0/1 stay zero at a good phase");
+        reg_rd("19", v);  reg_rd("1a", v2);
+        chk(v === 32'h003A_0035 && v2 === 32'h003A_0035, "LINK_LAST0/1 read 003a0035");
+        reg_rd("1b", v);
+        $display("    MISO_STAT %08h", v);
+        chk((v & 32'h10F) === 32'h00F, "MISO_STAT: both lines seen low and high, no loopback");
+        reg_rd("1c", v);  reg_rd("1d", v2);
+        chk(v > 32'd0 && v2 > 32'd0, "MISO_EDGES0/1 climb");
+        wr("03", 32'h8);
+        reg_rd("1b", v);
+        chk(v[8] === 1'b0 && mode_o === 32'h8, "MODE bit3 reaches mode_o; no loopback without HAS_EMU");
+        wr("03", 32'h0);
+
+        // ---- at a bad phase every lane fails every check ----
+        $sformat(line, "W 02 %08x\n", BAD_PHASE);
+        cmd_ok(line, "set PHASE_SELECT to a bad phase");
+        cmd_ok("W 00 00000002\n", "clear counters");
+        cmd_ok("W 00 00000001\n", "set CTRL run");
+        repeat (20000) @(posedge clk);
+        chk(link_good === 1'b0, "link_good low while the checks fail");
+        cmd_ok("W 00 00000000\n", "clear CTRL run");
+        repeat (4000) @(posedge clk);
+        reg_rd("16", chk_n);
+        reg_rd("17", v);  reg_rd("18", v2);
+        $display("    LINK_CHECKS %0d, LINK_ERR0 %08h, LINK_ERR1 %08h", chk_n, v, v2);
+        chk(chk_n > 0 && v === {chk_n[15:0], chk_n[15:0]} && v2 === {chk_n[15:0], chk_n[15:0]},
+            "LINK_ERR0/1 climb on all four lanes at a bad phase");
+
+        // ---- clear zeroes the diagnostics ----
+        cmd_ok("W 00 00000002\n", "write CTRL clear_counters");
+        repeat (50) @(posedge clk);
+        nbad = 0;
+        reg_rd("15", v); if (v !== 0) nbad = nbad + 1;
+        reg_rd("16", v); if (v !== 0) nbad = nbad + 1;
+        reg_rd("17", v); if (v !== 0) nbad = nbad + 1;
+        reg_rd("18", v); if (v !== 0) nbad = nbad + 1;
+        reg_rd("19", v); if (v !== 0) nbad = nbad + 1;
+        reg_rd("1a", v); if (v !== 0) nbad = nbad + 1;
+        reg_rd("1b", v); if (v[3:0] !== 0) nbad = nbad + 1;
+        reg_rd("1c", v); if (v !== 0) nbad = nbad + 1;
+        reg_rd("1d", v); if (v !== 0) nbad = nbad + 1;
+        chk(nbad == 0, "clear zeroes SPI_CYCLES, LINK_*, MISO_STAT seen bits, MISO_EDGES*");
+
+        // ---- MISO 0 stuck low: seen low, never high, no edges ----
+        $sformat(line, "W 02 %08x\n", WORKING_PHASE);
+        cmd_ok(line, "set PHASE_SELECT");
+        @(negedge clk); miso0_stuck = 1'b1;
+        cmd_ok("W 00 00000002\n", "clear counters");
+        wr("23", 32'd1);
+        diag_wait(st);
+        chk(st === 32'd2, "list ran with run clear");
+        reg_rd("1b", v);
+        $display("    MISO_STAT with miso0 stuck low: %08h", v);
+        chk(v[0] === 1'b1 && v[1] === 1'b0, "stuck miso0: seen low, never seen high");
+        chk(v[2] === 1'b1 && v[3] === 1'b1, "miso1 still seen low and high");
+        chk(v[4] === 1'b0, "miso0 level reads low right now");
+        reg_rd("1c", v);  reg_rd("1d", v2);
+        chk(v === 32'd0 && v2 > 32'd0, "no miso0 edges, miso1 edges counted");
+        reg_rd("15", v);
+        chk(v === 32'd6, "SPI_CYCLES counts list cycles too");
+        @(negedge clk); miso0_stuck = 1'b0;
 
         $display("\n=== %0d error(s) over %0d checks ===", errors, checks);
         if (errors == 0) $display("ALL CHECKS PASSED");
