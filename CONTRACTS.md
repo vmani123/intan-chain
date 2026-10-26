@@ -42,8 +42,10 @@ At 96 MHz one tick is 10.417 ns and the counter wraps every 44.7 s.
 ### Channel order
 
 Ascending: chip 0 module A channels 0–31, chip 0 module B 32–63, chip 1 module A
-64–95, chip 1 module B 96–127. Module A is the rising-edge half of the RHD2164's
-double-data-rate MISO, module B the falling-edge half.
+64–95, chip 1 module B 96–127. Chip 0 is the one on `miso0`. In the RHD2164's
+double-data-rate MISO, module A is the half the master samples on SCLK falling
+edges and module B the half it samples on rising edges, B's LSB on CS rising
+(datasheet, "DDR SPI Bus Signals"; section 6 has the exact taps).
 
 ---
 
@@ -168,11 +170,17 @@ Lowercase hex both ways. The board never sends anything unsolicited.
 | `2B` | R  | `DIAG_RAW1_2` | taps 64–77 in [13:0] |
 
 Writes to read-only or unknown addresses answer `err`, as do reads of unknown
-addresses.
+addresses. `DIAG_PTR` writes above 63 saturate at 63; the step after a
+`DIAG_CMD` write wraps 63 to 0. `DIAG_LEN` resets to 1.
+
+`clear_counters` zeroes `FRAMES` through `STALLS`, `SPI_CYCLES`, `LINK_CHECKS`,
+`LINK_ERR*`, `LINK_LAST*`, the sticky `MISO_STAT` bits and `MISO_EDGES*`, and
+drops LD5 until the next check passes. `MISO_EDGES*` wrap; everything else
+that counts saturates or cannot realistically reach 2^32.
 
 `SAMPLE_PERIOD` must be at least the time one sweep takes:
-`35 cycles × 84 ticks × (SPI_DIV + 1)` fast clocks, plus a few clocks of
-overhead (2940 at `SPI_DIV` = 0, about 32.6 kS/s). Writing less makes the
+`35 cycles × 84 ticks × (SPI_DIV + 1)` fast clocks, plus 2 clocks of
+overhead (2942 at `SPI_DIV` = 0, about 32.6 kS/s). Writing less makes the
 sequencer free-run and `OVERRUNS` climb; the host treats that as
 source-limited rather than as a radio ceiling.
 

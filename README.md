@@ -18,13 +18,18 @@ It exists to produce three numbers honestly: **throughput**, **latency** and
 the full write-up: architecture, verification, bench results, what limits
 performance, and open issues.
 
+**Real chips:** [docs/headstage-bringup.md](docs/headstage-bringup.md) wires
+the receiver to two real RHD2164s through an LVDS converter board
+(`make bit-headstage`), and `python3 -m chain.bringup` walks the link up stage
+by stage, naming the wire or chip at fault when a stage fails.
+
 ## Run everything that does not need hardware
 
 ```bash
 make check
 ```
 
-That is the contract check, the host Python tests, and six FPGA testbenches
+That is the contract check, the host Python tests, and seven FPGA testbenches
 under Icarus Verilog. It needs `iverilog`, `python3` and `pytest`, and nothing
 else. On a Mac: `brew install icarus-verilog`.
 
@@ -32,7 +37,9 @@ else. On a Mac: `brew install icarus-verilog`.
 
 | Part | Status |
 |---|---|
-| `host/` Python: pattern, framing, metrics, control, sweep, emulator golden | 50 pytest tests pass |
+| `host/` Python: pattern, framing, metrics, control, sweep, emulator golden | 177 pytest tests pass |
+| `host/chain/bringup.py`, `diag.py`, `rhd2164.py`, `viewer.py` | staged real-chip bring-up and the 128-channel viewer, against `fakeboard.py` (two modelled RHD2164s, ~25 injectable faults); not yet run on hardware |
+| `fpga/boards/headstage_arty_s7_25_top.sv` + `.xdc` | board simulated with modelled chips behind a converter and the on-die loopback (24 checks); **not yet synthesised** |
 | `fpga/rtl/gen/pattern_gen.sv` | matches the host's pattern bit for bit |
 | `fpga/rtl/rx/spi_master.sv` + `miso_phase_select.sv` | closed loop against the **real** RHD2164 emulator RTL; all 128 channels recovered |
 | `fpga/rtl/rx/uart_rx/tx`, `ctrl_regs.sv` | 47 checks, including at the true 96 MHz / 115200 divisor |
@@ -134,7 +141,8 @@ Each step is verifiable before the next one is wired.
 
 1. **ESP synthetic source -> PC.** No FPGA (`-DBENCH_INGRESS=synth`). Gives the
    radio ceiling.
-2. **Board alone.** Program it, `R 1f` must answer `1f=1c100001`. With the ESP
+2. **Board alone.** Program it, `R 1f` must answer `1f=1c100002` (`1c100001`
+   for bitstreams built before the headstage change). With the ESP
    unplugged, `W 03 00000004` then `W 00 00000001`: `FRAMES` climbs, `STALLS`
    climbs and `DGRAMS` stays 0 (esp_ready is pulled down).
 3. **Internal pattern -> QSPI -> ESP -> PC.** Wire JC to the ESP, flash
@@ -145,8 +153,9 @@ Each step is verifiable before the next one is wired.
    `python3 -m chain.sweep --serial <arty uart> --phase-scan --phase-rate 2000` scores every frame
    against the emulator's playback memory, so a phase either recovers all 128
    channels exactly or shows bit errors. Take the middle of the clean run. On
-   the bench the window is PHASE_SELECT 5-6 (simulation: 3-4; the extra is pad
-   and jumper delay). Then `--source emulator --rates ...` for throughput.
+   the bench the window was PHASE_SELECT 5-6 with the 80-tick cycle
+   (simulation: 3-4; the extra is pad and jumper delay). Then
+   `--source emulator --rates ...` for throughput.
 5. **Codec on.** Not written yet; the flag and the frame type exist for it.
 
 ## Driving the board by hand
@@ -160,7 +169,7 @@ is `err`, press Ctrl-J once and retry.
 
 ```
 screen /dev/cu.usbserial-XXXXXXXX1 115200    # the Arty's second port, on a Mac
-R 1f            -> 1f=1c100001      which bitstream is loaded
+R 1f            -> 1f=1c100002      which bitstream is loaded
 W 01 0000bb80   -> ok               sample period, ticks at 96 MHz
 W 03 00000004   -> ok               MODE: use the internal pattern
 W 00 00000001   -> ok               run
@@ -191,7 +200,8 @@ to re-arm its DMA. At 96 MHz:
 | 6 | 8 MHz | ~34700 | **~13.8 kS/s per channel** |
 | 2 | 24 MHz | ~12200 | ~39 kS/s per channel |
 
-One SPI sweep is 2800 clocks, about **34 kS/s**. So at `QSPI_DIV = 6` the QSPI
+One SPI sweep is 35 x 84 = 2940 clocks (2942 with overhead), about
+**32.6 kS/s**, and `SPI_DIV` stretches it. So at `QSPI_DIV = 6` the QSPI
 link is the first ceiling, and at 2 the RHD2164 sequencer is -- worth knowing
 before blaming the radio.
 
