@@ -135,17 +135,44 @@ Lowercase hex both ways. The board never sends anything unsolicited.
 |---|---|---|---|
 | `00` | RW | `CTRL` | bit0 `run`, bit1 `clear_counters` (self-clearing) |
 | `01` | RW | `SAMPLE_PERIOD` | fast-clock ticks between sample starts. Sets the rate |
-| `02` | RW | `PHASE_SELECT` | 0–11. MISO sampling phase, in quarter-SCLK steps |
-| `03` | RW | `MODE` | bit0 pattern REALISTIC, bit1 codec enable, bit2 use internal pattern instead of SPI |
+| `02` | RW | `PHASE_SELECT` | 0–15. MISO sampling phase, in SPI ticks (quarter-SCLK steps); larger writes saturate at 15 |
+| `03` | RW | `MODE` | bit0 pattern REALISTIC, bit1 codec enable, bit2 use internal pattern instead of SPI, bit3 SPI loopback to the on-die emulator (headstage build only; see `CAPS`) |
+| `04` | RW | `SPI_DIV` | 0–15. One SPI tick = `SPI_DIV + 1` fast clocks, so SCLK = 24 MHz / (`SPI_DIV` + 1). Phase steps stretch by the same factor. Larger writes saturate at 15 |
 | `10` | R  | `FRAMES` | frames built since the last clear |
 | `11` | R  | `DGRAMS` | datagrams handed to QSPI |
 | `12` | R  | `FIFO_HIGH` | high-water mark, in datagram slots |
 | `13` | R  | `OVERRUNS` | datagrams dropped because the FIFO was full |
 | `14` | R  | `STALLS` | fast-clock cycles spent waiting on the ESP ready line |
-| `1F` | R  | `ID` | `0x1C10_0001` — magic + version, proves which bitstream is loaded |
+| `15` | R  | `SPI_CYCLES` | CS cycles issued since the last clear, sweeps and diagnostic lists alike. Climbing proves the SPI master runs |
+| `16` | R  | `LINK_CHECKS` | sweeps whose AUX `READ(59)` result was checked (section 6) |
+| `17` | R  | `LINK_ERR0` | chip 0 link check failures: [15:0] module A, [31:16] module B. Each half saturates at `ffff` |
+| `18` | R  | `LINK_ERR1` | chip 1, same layout |
+| `19` | R  | `LINK_LAST0` | chip 0's most recent `READ(59)` result: [15:0] module A (expect `0035`), [31:16] module B (expect `003a`) |
+| `1A` | R  | `LINK_LAST1` | chip 1, same layout |
+| `1B` | R  | `MISO_STAT` | bit0 / bit1: miso0 seen low / seen high while CS was low (sticky until clear); bit2 / bit3: the same for miso1; bit4 / bit5: miso0 / miso1 level right now; bit8: loopback active |
+| `1C` | R  | `MISO_EDGES0` | miso0 transitions seen while CS was low, since the last clear |
+| `1D` | R  | `MISO_EDGES1` | miso1, same |
+| `1E` | R  | `CAPS` | build facts: [7:0] `QSPI_DIV`, bit8 on-die emulator present (loopback works), [23:16] capture taps per CS cycle (78) |
+| `1F` | R  | `ID` | `0x1C10_0002` — magic + version, proves which bitstream is loaded |
+| `20` | RW | `DIAG_PTR` | 0–63. Index into the diagnostic command list and its results |
+| `21` | RW | `DIAG_CMD` | write: command list entry `DIAG_PTR` = value[15:0], then `DIAG_PTR` += 1. Read: entry `DIAG_PTR`, no side effect |
+| `22` | RW | `DIAG_LEN` | 1–64. Commands in the list. 0 reads back as 1; larger writes saturate at 64 |
+| `23` | RW | `DIAG_CTRL` | write bit0 `go` (self-clearing). Read: bit0 busy, bit1 done (since the last `go`), bit2 rejected (the last `go` arrived while `run` was set; nothing was sent) |
+| `24` | R  | `DIAG_RES0` | cycle `DIAG_PTR`, chip 0, decoded at the `PHASE_SELECT` in force during it: [15:0] module A, [31:16] module B |
+| `25` | R  | `DIAG_RES1` | chip 1, same layout |
+| `26` | R  | `DIAG_RAW0_0` | cycle `DIAG_PTR`, raw miso0 taps 0–31 (bit k = tap k) |
+| `27` | R  | `DIAG_RAW0_1` | taps 32–63 |
+| `28` | R  | `DIAG_RAW0_2` | taps 64–77 in [13:0]; [31:14] read 0 |
+| `29` | R  | `DIAG_RAW1_0` | miso1, taps 0–31 |
+| `2A` | R  | `DIAG_RAW1_1` | taps 32–63 |
+| `2B` | R  | `DIAG_RAW1_2` | taps 64–77 in [13:0] |
 
-`SAMPLE_PERIOD` must be at least the time one command sequence takes:
-`35 commands × 16 SCLK bits × OVERSAMPLE + overhead`. Writing less makes the
+Writes to read-only or unknown addresses answer `err`, as do reads of unknown
+addresses.
+
+`SAMPLE_PERIOD` must be at least the time one sweep takes:
+`35 cycles × 84 ticks × (SPI_DIV + 1)` fast clocks, plus a few clocks of
+overhead (2940 at `SPI_DIV` = 0, about 32.6 kS/s). Writing less makes the
 sequencer free-run and `OVERRUNS` climb; the host treats that as
 source-limited rather than as a radio ceiling.
 
@@ -160,6 +187,83 @@ source-limited rather than as a radio ceiling.
 | `SYS_CLK_HZ` | 96_000_000 | 100 MHz osc → MMCM; /4 gives SCLK = 24 MHz, the RHD2164 max |
 | `OVERSAMPLE` | 4 | fast-clock ticks per SCLK bit, as in Intan's Rhythm |
 | `CMDS_PER_SAMPLE` | 35 | 32 CONVERT + 3 AUX |
+| `CMD_TICKS` | 84 | SPI ticks per CS cycle: 65 with CS low, 19 high |
+| `CAP_TAPS` | 78 | MISO taps recorded per CS cycle; supports `PHASE_SELECT` 0–15 |
+| `DIAG_DEPTH` | 64 | diagnostic list entries |
 | `UART_BAUD` | 115200 | |
 | `UDP_PORT` | 5001 | data |
 | `ECHO_PORT` | 5002 | round-trip clock offset probe |
+
+---
+
+## 6. SPI cycle, AUX slots and the diagnostic list
+
+### One CS cycle
+
+One command is one CS cycle of 84 SPI ticks (`OVERSAMPLE` = 4 ticks per SCLK
+bit; one tick is `SPI_DIV + 1` fast clocks):
+
+| Ticks | Bus |
+|---|---|
+| 0–64 | CS low. Bit b of the command (MSB first) occupies ticks 4b..4b+3: MOSI changes on tick 4b, SCLK is high on ticks 4b+2 and 4b+3 |
+| 65–83 | CS high (19 ticks = 198 ns at `SPI_DIV` = 0, over the 154 ns minimum) |
+
+MISO is recorded on every tick from 2 to 79: **tap k is the MISO level sampled
+on tick k + 2**, 78 taps per cycle. Decoding at phase p, exactly as
+`miso_phase_select.sv` does:
+
+```
+module A bit (15 - j) = tap[p + 4*j]          j = 0..15   (falling-edge half)
+module B bit (15 - j) = tap[p + 2 + 4*j]                  (rising-edge half; LSB after CS rises)
+```
+
+so p = 0..15 is the full range the window supports.
+
+### The two-cycle pipeline
+
+The RHD2164 returns a command's result two CS cycles later. The FPGA never
+re-aligns diagnostic results: **cycle i carries the result of the command sent
+in cycle i − 2**. A list that wants every result back ends with two harmless
+commands (`READ(63)` is the convention).
+
+### The sweep
+
+One sample is 35 cycles: `CONVERT(0)` .. `CONVERT(31)` in cycles 0–31, then
+three AUX commands, fixed in this build:
+
+| Cycle | Command | Result arrives |
+|---|---|---|
+| 32 | `READ(59)` — MISO A/B marker | cycle 34: module A `0x0035`, module B `0x003A`, on both chips |
+| 33 | `READ(40)` — `'I'` | cycle 0 of the next sweep (unchecked) |
+| 34 | `READ(63)` — chip ID, `4` | cycle 1 of the next sweep (unchecked) |
+
+In cycle 34 of every sweep the FPGA compares the four 16-bit words (chip 0 A
+and B, chip 1 A and B) with `0035` / `003a` / `0035` / `003a`. Each mismatch
+increments that lane's half of `LINK_ERR0` / `LINK_ERR1`; `LINK_CHECKS`
+increments once per sweep; `LINK_LAST0` / `LINK_LAST1` hold the words read.
+A healthy link therefore shows `LINK_CHECKS` climbing and `LINK_ERR*` at zero
+for as long as it runs, with no reference data and no ESP. The marker differs
+between modules on purpose: a phase that swaps or shifts the two halves cannot
+pass. LED LD5 is lit while the most recent check passed on all four lanes.
+
+### The diagnostic list
+
+With `run` clear, `DIAG_CTRL` `go` sends commands `0 .. DIAG_LEN-1` of the
+list back to back, one CS cycle each, with the same timing as a sweep, and
+records each cycle's decoded words (`DIAG_RES*`) and raw taps (`DIAG_RAW*`).
+Nothing reaches the frame builder. A `go` while `run` is set is refused and
+sets `DIAG_CTRL` bit2. Results stay readable until the next `go`.
+
+RHD2164 command words (datasheet; RHD2000 series register map):
+
+| Command | Word | Result two cycles later |
+|---|---|---|
+| `CONVERT(c)` | `00cccccc 0000000h` | ADC value: module A channel c, module B channel c + 32 |
+| `READ(r)` | `11rrrrrr 00000000` | `0x00` then the register byte |
+| `WRITE(r, d)` | `10rrrrrr dddddddd` | `0xFF` then d |
+| `CALIBRATE` | `0x5500` | the next 9 commands are consumed by calibration |
+| `CLEAR` | `0x6A00` | clears calibration; never needed in normal use |
+
+ROM registers, read on module A: 40–44 `"INTAN"`, 59 = 53 (module B: 58),
+60 die revision, 61 = 1 (unipolar), 62 = 64 amplifiers, 63 = 4 (RHD2164).
+Registers 18–21 read back correctly only on module B.

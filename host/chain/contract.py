@@ -13,10 +13,15 @@ FRAMES_PER_DGRAM = 5  # frames per UDP datagram
 SYS_CLK_HZ = 96000000  # FPGA fast clock
 OVERSAMPLE = 4  # fast-clock ticks per SCLK bit
 CMDS_PER_SAMPLE = 35  # 32 CONVERT + 3 AUX
+CMD_TICKS = 84  # SPI ticks per CS cycle
+CAP_TAPS = 78  # MISO taps recorded per CS cycle
+PHASE_MAX = 15  # largest PHASE_SELECT
+SPI_DIV_MAX = 15  # largest SPI_DIV
+DIAG_DEPTH = 64  # diagnostic list entries
 UART_BAUD = 115200  # control interface
 UDP_PORT = 5001  # data
 ECHO_PORT = 5002  # clock-offset probe
-ID_EXPECTED = 470810625  # value of register 0x1F
+ID_EXPECTED = 470810626  # value of register 0x1F
 
 RAW16_PAYLOAD = N_CH * 2
 RAW16_FRAME = HDR_BYTES + RAW16_PAYLOAD
@@ -34,12 +39,35 @@ assert struct.calcsize(TRAILER_FMT) == TRAILER_BYTES
 REG = {
     'CTRL': 0x00,  # bit0 run, bit1 clear_counters
     'SAMPLE_PERIOD': 0x01,  # fast-clock ticks between sample starts
-    'PHASE_SELECT': 0x02,  # 0..11, MISO sampling phase
-    'MODE': 0x03,  # bit0 realistic, bit1 codec, bit2 internal pattern
+    'PHASE_SELECT': 0x02,  # 0..15, MISO sampling phase in SPI ticks
+    'MODE': 0x03,  # bit0 realistic, bit1 codec, bit2 internal pattern, bit3 loopback
+    'SPI_DIV': 0x04,  # 0..15, SCLK = 24 MHz / (SPI_DIV + 1)
     'FRAMES': 0x10,  # frames built
     'DGRAMS': 0x11,  # datagrams sent to QSPI
     'FIFO_HIGH': 0x12,  # FIFO high-water, in slots
     'OVERRUNS': 0x13,  # datagrams dropped, FIFO full
     'STALLS': 0x14,  # cycles waiting on the ESP ready line
+    'SPI_CYCLES': 0x15,  # CS cycles issued
+    'LINK_CHECKS': 0x16,  # sweeps whose READ(59) result was checked
+    'LINK_ERR0': 0x17,  # chip 0 check failures, [15:0] A, [31:16] B
+    'LINK_ERR1': 0x18,  # chip 1 check failures, [15:0] A, [31:16] B
+    'LINK_LAST0': 0x19,  # chip 0 last READ(59), [15:0] A, [31:16] B
+    'LINK_LAST1': 0x1a,  # chip 1 last READ(59), [15:0] A, [31:16] B
+    'MISO_STAT': 0x1b,  # seen-low/high flags, live levels, loopback
+    'MISO_EDGES0': 0x1c,  # miso0 transitions while CS low
+    'MISO_EDGES1': 0x1d,  # miso1 transitions while CS low
+    'CAPS': 0x1e,  # [7:0] QSPI_DIV, bit8 emulator, [23:16] taps
     'ID': 0x1f,  # magic + version
+    'DIAG_PTR': 0x20,  # diagnostic list index
+    'DIAG_CMD': 0x21,  # list entry at DIAG_PTR; write increments
+    'DIAG_LEN': 0x22,  # commands in the list, 1..64
+    'DIAG_CTRL': 0x23,  # W bit0 go; R bit0 busy, bit1 done, bit2 rejected
+    'DIAG_RES0': 0x24,  # chip 0 decoded, [15:0] A, [31:16] B
+    'DIAG_RES1': 0x25,  # chip 1 decoded, [15:0] A, [31:16] B
+    'DIAG_RAW0_0': 0x26,  # miso0 taps 0..31
+    'DIAG_RAW0_1': 0x27,  # miso0 taps 32..63
+    'DIAG_RAW0_2': 0x28,  # miso0 taps 64..77
+    'DIAG_RAW1_0': 0x29,  # miso1 taps 0..31
+    'DIAG_RAW1_1': 0x2a,  # miso1 taps 32..63
+    'DIAG_RAW1_2': 0x2b,  # miso1 taps 64..77
 }

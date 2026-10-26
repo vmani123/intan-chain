@@ -14,10 +14,15 @@
 #define CHAIN_SYS_CLK_HZ         0x5b8d800   /* FPGA fast clock */
 #define CHAIN_OVERSAMPLE         0x4   /* fast-clock ticks per SCLK bit */
 #define CHAIN_CMDS_PER_SAMPLE    0x23   /* 32 CONVERT + 3 AUX */
+#define CHAIN_CMD_TICKS          0x54   /* SPI ticks per CS cycle */
+#define CHAIN_CAP_TAPS           0x4e   /* MISO taps recorded per CS cycle */
+#define CHAIN_PHASE_MAX          0xf   /* largest PHASE_SELECT */
+#define CHAIN_SPI_DIV_MAX        0xf   /* largest SPI_DIV */
+#define CHAIN_DIAG_DEPTH         0x40   /* diagnostic list entries */
 #define CHAIN_UART_BAUD          0x1c200   /* control interface */
 #define CHAIN_UDP_PORT           0x1389   /* data */
 #define CHAIN_ECHO_PORT          0x138a   /* clock-offset probe */
-#define CHAIN_ID_EXPECTED        0x1c100001   /* value of register 0x1F */
+#define CHAIN_ID_EXPECTED        0x1c100002   /* value of register 0x1F */
 
 /* Frame payload and total sizes for RAW16 at CHAIN_N_CH channels. */
 #define CHAIN_RAW16_PAYLOAD  (CHAIN_N_CH * 2)
@@ -49,11 +54,34 @@ _Static_assert(sizeof(chain_trailer_t) == CHAIN_TRAILER_BYTES, "trailer must be 
 /* UART control registers. */
 #define CHAIN_REG_CTRL           0x00   /* bit0 run, bit1 clear_counters */
 #define CHAIN_REG_SAMPLE_PERIOD  0x01   /* fast-clock ticks between sample starts */
-#define CHAIN_REG_PHASE_SELECT   0x02   /* 0..11, MISO sampling phase */
-#define CHAIN_REG_MODE           0x03   /* bit0 realistic, bit1 codec, bit2 internal pattern */
+#define CHAIN_REG_PHASE_SELECT   0x02   /* 0..15, MISO sampling phase in SPI ticks */
+#define CHAIN_REG_MODE           0x03   /* bit0 realistic, bit1 codec, bit2 internal pattern, bit3 loopback */
+#define CHAIN_REG_SPI_DIV        0x04   /* 0..15, SCLK = 24 MHz / (SPI_DIV + 1) */
 #define CHAIN_REG_FRAMES         0x10   /* frames built */
 #define CHAIN_REG_DGRAMS         0x11   /* datagrams sent to QSPI */
 #define CHAIN_REG_FIFO_HIGH      0x12   /* FIFO high-water, in slots */
 #define CHAIN_REG_OVERRUNS       0x13   /* datagrams dropped, FIFO full */
 #define CHAIN_REG_STALLS         0x14   /* cycles waiting on the ESP ready line */
+#define CHAIN_REG_SPI_CYCLES     0x15   /* CS cycles issued */
+#define CHAIN_REG_LINK_CHECKS    0x16   /* sweeps whose READ(59) result was checked */
+#define CHAIN_REG_LINK_ERR0      0x17   /* chip 0 check failures, [15:0] A, [31:16] B */
+#define CHAIN_REG_LINK_ERR1      0x18   /* chip 1 check failures, [15:0] A, [31:16] B */
+#define CHAIN_REG_LINK_LAST0     0x19   /* chip 0 last READ(59), [15:0] A, [31:16] B */
+#define CHAIN_REG_LINK_LAST1     0x1a   /* chip 1 last READ(59), [15:0] A, [31:16] B */
+#define CHAIN_REG_MISO_STAT      0x1b   /* seen-low/high flags, live levels, loopback */
+#define CHAIN_REG_MISO_EDGES0    0x1c   /* miso0 transitions while CS low */
+#define CHAIN_REG_MISO_EDGES1    0x1d   /* miso1 transitions while CS low */
+#define CHAIN_REG_CAPS           0x1e   /* [7:0] QSPI_DIV, bit8 emulator, [23:16] taps */
 #define CHAIN_REG_ID             0x1f   /* magic + version */
+#define CHAIN_REG_DIAG_PTR       0x20   /* diagnostic list index */
+#define CHAIN_REG_DIAG_CMD       0x21   /* list entry at DIAG_PTR; write increments */
+#define CHAIN_REG_DIAG_LEN       0x22   /* commands in the list, 1..64 */
+#define CHAIN_REG_DIAG_CTRL      0x23   /* W bit0 go; R bit0 busy, bit1 done, bit2 rejected */
+#define CHAIN_REG_DIAG_RES0      0x24   /* chip 0 decoded, [15:0] A, [31:16] B */
+#define CHAIN_REG_DIAG_RES1      0x25   /* chip 1 decoded, [15:0] A, [31:16] B */
+#define CHAIN_REG_DIAG_RAW0_0    0x26   /* miso0 taps 0..31 */
+#define CHAIN_REG_DIAG_RAW0_1    0x27   /* miso0 taps 32..63 */
+#define CHAIN_REG_DIAG_RAW0_2    0x28   /* miso0 taps 64..77 */
+#define CHAIN_REG_DIAG_RAW1_0    0x29   /* miso1 taps 0..31 */
+#define CHAIN_REG_DIAG_RAW1_1    0x2a   /* miso1 taps 32..63 */
+#define CHAIN_REG_DIAG_RAW1_2    0x2b   /* miso1 taps 64..77 */
