@@ -14,7 +14,8 @@
  * signature the host's CHECK scoring would show, without needing the host.
  *
  * A seq jump is counted, not failed: the FPGA drops whole datagrams when its
- * FIFO is full (OVERRUNS), and seq is how that is seen from this end. The
+ * FIFO is full (OVERRUNS), and seq is how that is seen from this end. A seq
+ * that goes backwards is a restart (clear_counters zeroes it), not a loss. The
  * sample values are not checked; the host does that bit-exact once Wi-Fi is
  * up, and the header check is what tells a bus fault from a radio fault.
  */
@@ -41,6 +42,7 @@ static void check_task(void *arg)
 {
     (void)arg;
     uint32_t dgrams = 0, frames_ok = 0, frames_bad = 0, seq_gaps = 0, lost = 0;
+    uint32_t restarts = 0;
     uint32_t last_dgrams = 0, last_seq = 0;
     bool have_seq = false, dumped = false;
     int64_t next_report = esp_timer_get_time() + 1000000;
@@ -68,8 +70,12 @@ static void check_task(void *arg)
                 }
                 frames_ok++;
                 if (have_seq && h.seq != last_seq + 1) {
-                    seq_gaps++;
-                    lost += h.seq - last_seq - 1;   /* wraps sensibly at 2^32 */
+                    if (h.seq > last_seq) {
+                        seq_gaps++;
+                        lost += h.seq - last_seq - 1;
+                    } else {
+                        restarts++;     /* the FPGA's counters were cleared */
+                    }
                 }
                 last_seq = h.seq;
                 have_seq = true;
@@ -80,11 +86,11 @@ static void check_task(void *arg)
         int64_t now = esp_timer_get_time();
         if (now >= next_report) {
             ESP_LOGI(TAG, "%lu dgram/s | total %lu | frames ok %lu bad %lu | "
-                          "seq gaps %lu (%lu frames) | last seq %lu",
+                          "seq gaps %lu (%lu frames) restarts %lu | last seq %lu",
                      (unsigned long)(dgrams - last_dgrams), (unsigned long)dgrams,
                      (unsigned long)frames_ok, (unsigned long)frames_bad,
                      (unsigned long)seq_gaps, (unsigned long)lost,
-                     (unsigned long)last_seq);
+                     (unsigned long)restarts, (unsigned long)last_seq);
             last_dgrams = dgrams;
             next_report = now + 1000000;
         }

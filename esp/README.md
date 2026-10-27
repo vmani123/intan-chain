@@ -98,7 +98,7 @@ headers (magic, type, 128 channels, payload length, seq running on) and drops
 it, logging once a second:
 
 ```
-link: 400 dgram/s | total 12000 | frames ok 60000 bad 0 | seq gaps 0 (0 frames) | last seq 59999
+link: 400 dgram/s | total 3023 | frames ok 15115 bad 0 | seq gaps 0 (0 frames) restarts 1 | last seq 15101
 ```
 
 `bad` above zero is a bus fault (the first bad header is hex-dumped); seq gaps
