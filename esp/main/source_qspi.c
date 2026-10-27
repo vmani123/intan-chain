@@ -1,7 +1,9 @@
 /*
  * source_qspi.c - Stage 2 ingress: datagrams arrive from the FPGA over the
- * ESP32-S3 GP-SPI Slave HD peripheral, 4-line data phase, DMA straight into a
- * pipe buffer.
+ * GP-SPI2 Slave HD peripheral of the ESP32-S3 or ESP32-C5, 4-line data phase,
+ * DMA straight into a pipe buffer. The two chips' slaves decode the same
+ * commands with the same line-mode bits and dummy count (see the table below);
+ * only pins, core count and register field names differ, all in target.h.
  *
  * =====================================================================
  *  READ THIS BEFORE THE FIRST HARDWARE BRING-UP. TWO THINGS WILL BITE.
@@ -75,7 +77,7 @@
 #include "soc/spi_struct.h"
 
 #include "chain_contract.h"
-#include "pins_s3.h"
+#include "target.h"
 #include "pipe.h"
 
 static const char *TAG = "qspi";
@@ -87,7 +89,7 @@ static const char *TAG = "qspi";
  * protocol on its own. It is here so both ends have one place to be checked
  * against. Confirmed against ESP-IDF v5.4 (the CI image) and v6.0-dev:
  *
- *   hal/esp32s3/include/hal/spi_ll.h
+ *   hal/esp32s3/include/hal/spi_ll.h  (hal/esp32c5/... is identical here)
  *     spi_ll_get_slave_hd_command():    base command | line-mode mask, where
  *                                       0x20 = CMD 1-bit, ADDR 1-bit, DATA 4-bit
  *     spi_ll_get_slave_hd_dummy_bits(): 8, in every line mode
@@ -131,7 +133,7 @@ static spi_slave_hd_data_t s_desc[QSPI_QUEUE_DEPTH];
 static int                 s_head;
 static int                 s_outstanding;
 
-/* Which ESP pin carries which bus line. pins_s3.h gives the intended wiring;
+/* Which ESP pin carries which bus line. pins_<chip>.h gives the intended wiring;
  * CONFIG_CHAIN_QSPI_PIN_SCAN can replace it with the wiring actually found. */
 typedef struct { int cs, clk, d0, d1, d2, d3; } qspi_pins_t;
 static qspi_pins_t s_pins = {
@@ -187,10 +189,10 @@ static void bus_report(void)
     }
     ESP_LOGW(TAG, "no segment for 1 s | slave last cmd 0x%02x addr 0x%02x bits %u"
                   " | seen: wr_done %d wrdma %d cmd_err %d | pins:%s",
-             (unsigned)GPSPI2.slave1.last_command, (unsigned)GPSPI2.slave1.last_addr,
-             (unsigned)GPSPI2.slave1.data_bitlen,
-             (int)GPSPI2.dma_int_raw.cmd7, (int)GPSPI2.dma_int_raw.wr_dma_done,
-             (int)GPSPI2.dma_int_raw.cmd_err, lines);
+             (unsigned)SLV_LAST_CMD(), (unsigned)SLV_LAST_ADDR(),
+             (unsigned)SLV_DATA_BITLEN(),
+             (int)SLV_SEEN_WR_DONE(), (int)SLV_SEEN_WRDMA(),
+             (int)SLV_SEEN_CMD_ERR(), lines);
 }
 
 /* Arm one DMA receive into a fresh pipe buffer. */
@@ -398,7 +400,7 @@ static void pin_scan(qspi_pins_t *io)
         if (ok) {
             if (p.clk != PIN_QSPI_CLK || p.d0 != PIN_QSPI_D0 || p.d1 != PIN_QSPI_D1 ||
                 p.d2 != PIN_QSPI_D2 || p.d3 != PIN_QSPI_D3) {
-                ESP_LOGW(TAG, "pin scan: WIRING DIFFERS from pins_s3.h");
+                ESP_LOGW(TAG, "pin scan: WIRING DIFFERS from %s", NODE_PIN_MAP);
             }
             ESP_LOGW(TAG, "pin scan: found cs=GPIO%d clk=GPIO%d d0=GPIO%d d1=GPIO%d "
                           "d2=GPIO%d d3=GPIO%d", p.cs, p.clk, p.d0, p.d1, p.d2, p.d3);
@@ -431,8 +433,8 @@ void source_qspi_start(void)
 #endif
     ESP_ERROR_CHECK(slave_init(&s_pins));
 
-    /* Core 1, priority 8: same placement and priority as the synthetic
+    /* INGRESS_CORE, priority 8: same placement and priority as the synthetic
      * source, so the two ingress arms differ in what they do and in nothing
      * else. Comparing them is the whole point. */
-    xTaskCreatePinnedToCore(qspi_task, "qspi", 4096, NULL, 8, NULL, 1);
+    xTaskCreatePinnedToCore(qspi_task, "qspi", 4096, NULL, 8, NULL, INGRESS_CORE);
 }

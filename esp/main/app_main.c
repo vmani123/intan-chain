@@ -1,5 +1,5 @@
 /*
- * app_main.c - bring-up and wiring for the intan-chain ESP32-S3 node.
+ * app_main.c - bring-up and wiring for the intan-chain node (ESP32-S3 or C5).
  *
  * Order matters: NVS, banner, radio, pipe, sink, echo, source. The source
  * starts last so that no datagram is generated before there is somewhere for
@@ -19,6 +19,7 @@
 
 #include "chain_contract.h"
 #include "pipe.h"
+#include "target.h"
 #include "wifi.h"
 
 /* Task entry points. Declared here rather than in a header: each is called
@@ -49,10 +50,10 @@ static const char *TAG = "chain";
 static void banner(void)
 {
     ESP_LOGI(TAG,
-             "intan-chain esp | ingress=%s | idf=%d.%d.%d | "
+             "intan-chain esp | chip=%s ingress=%s | idf=%d.%d.%d | "
              "n_ch=%d hdr=%d frame=%d frames/dgram=%d payload=%d trailer=%d dgram=%d | "
              "udp=%d echo=%d",
-             INGRESS_NAME,
+             NODE_CHIP, INGRESS_NAME,
              ESP_IDF_VERSION_MAJOR, ESP_IDF_VERSION_MINOR, ESP_IDF_VERSION_PATCH,
              (int)CHAIN_N_CH, (int)CHAIN_HDR_BYTES, (int)CHAIN_RAW16_FRAME,
              (int)CHAIN_FRAMES_PER_DGRAM, (int)CHAIN_DGRAM_PAYLOAD,

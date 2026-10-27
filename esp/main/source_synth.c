@@ -28,6 +28,7 @@
 #include "chain_contract.h"
 #include "pattern.h"
 #include "pipe.h"
+#include "target.h"
 
 static const char *TAG = "synth";
 
@@ -173,8 +174,9 @@ static void synth_task(void *arg)
 
 void source_synth_start(void)
 {
-    /* Core 1, priority 8. Core 1 is the quiet one: Wi-Fi, lwIP and the sink
-     * all live on core 0, so the source never contends with the radio for CPU
-     * and the two halves of the measurement stay separable. */
-    xTaskCreatePinnedToCore(synth_task, "synth", 4096, NULL, 8, NULL, 1);
+    /* INGRESS_CORE, priority 8. On the S3 that is core 1, the quiet one:
+     * Wi-Fi, lwIP and the sink all live on core 0, so the source never
+     * contends with the radio for CPU and the two halves of the measurement
+     * stay separable. The C5 has one core, so there the priorities do it. */
+    xTaskCreatePinnedToCore(synth_task, "synth", 4096, NULL, 8, NULL, INGRESS_CORE);
 }

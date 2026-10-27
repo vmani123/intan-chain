@@ -1,7 +1,7 @@
-# Top-level ESP-IDF project for the intan-chain ESP32-S3 node.
+# Top-level ESP-IDF project for the intan-chain node: ESP32-S3 or ESP32-C5.
 #
 # Build:
-#   idf.py set-target esp32s3
+#   idf.py set-target esp32s3               # or esp32c5 (main/target.h)
 #   idf.py -DBENCH_INGRESS=synth build      # Stage 0: pattern made on the ESP
 #   idf.py -DBENCH_INGRESS=qspi  build      # Stage 2: pattern arrives over QSPI
 #

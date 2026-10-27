@@ -1,4 +1,4 @@
-# esp/ - the ESP32-S3 node
+# esp/ - the ESP32-S3 / ESP32-C5 node
 
 Takes finished UDP payloads from the FPGA over QSPI, appends a 12-byte
 trailer, and pushes them to a host over Wi-Fi. That is the whole job.
@@ -53,11 +53,50 @@ The 1 Hz `pipe` line divides by a nominal second; when the reporting task is
 starved (saturated radio) its rates are wrong. Use the host's numbers.
 
 
+## ESP32-C5 node
+
+The link moved to an ESP32-C5-DevKitC-1 (N8R8, CP2102N USB bridge) when the
+bench S3 board started browning out at Wi-Fi start-up on every USB port.
+Nothing changes on the FPGA side: the C5's GP-SPI2 slave decodes the same
+slave-HD commands with the same line-mode bits and dummy count as the S3's
+(`hal/esp32c5/include/hal/spi_ll.h`), so `qspi_master.sv` and Pmod JC stay as
+they are. What differs is in `main/target.h`: the pin map (`main/pins_c5.h`),
+one CPU core instead of two, and the slave register names `bus_report()`
+reads.
+
+| Arty JC | Signal | C5 GPIO | DevKitC-1 pin |
+|---|---|---|---|
+| JC1 | `qspi_cs_n` | GPIO10 | J1-11 |
+| JC2 | `qspi_sclk` | GPIO6 | J1-7 |
+| JC3 | `qspi_dq[0]` | GPIO8 | J1-9 |
+| JC4 | `qspi_dq[1]` | GPIO9 | J1-10 |
+| JC7 | `qspi_dq[2]` | GPIO5 | J3-9 |
+| JC8 | `qspi_dq[3]` | GPIO4 | J3-8 |
+| JC9 | `esp_ready` (in) | GPIO23 | J3-5 |
+| JC5 / JC11 | GND | G | J1-15, J3-1/12/15 |
+
+No 3V3 between the boards. The C5's own SPI2 MOSI/MISO pads (GPIO7, GPIO2)
+are strapping pins, so D0/D1 use GPIO8/9 through the GPIO matrix, the route
+`slave_init()` forces on every chip anyway.
+
+Build each C5 variant in its own build directory with its own sdkconfig, so
+the S3's `sdkconfig` is left alone:
+
+```sh
+idf.py -B build/c5_qspi -DSDKCONFIG=build/c5_qspi/sdkconfig -DBENCH_INGRESS=qspi set-target esp32c5
+idf.py -B build/c5_qspi -DSDKCONFIG=build/c5_qspi/sdkconfig -DBENCH_INGRESS=qspi menuconfig build
+idf.py -B build/c5_qspi -DSDKCONFIG=build/c5_qspi/sdkconfig -DBENCH_INGRESS=qspi -p /dev/cu.usbserial-110 flash
+```
+
+On a network that admits only registered devices (CMU-DEVICE), register the
+C5's own MAC first; the network otherwise drops it right after it associates.
+
+
 ## Build
 
 ```sh
 cd esp
-idf.py set-target esp32s3
+idf.py set-target esp32s3               # sdkconfig.defaults no longer names a chip
 
 idf.py -DBENCH_INGRESS=synth build      # Stage 0, default
 idf.py -DBENCH_INGRESS=qspi  build      # Stage 2

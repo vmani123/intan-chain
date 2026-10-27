@@ -1,10 +1,11 @@
-# Defaults for the intan-chain ESP32-S3 node.
+# Defaults for the intan-chain node, ESP32-S3 or ESP32-C5.
 #
-# Everything here is either required (target) or is a setting that measurably
-# moves UDP TX throughput. Anything that does not move the number is left at
-# the IDF default so the configuration stays readable.
-
-CONFIG_IDF_TARGET="esp32s3"
+# Every setting here measurably moves UDP TX throughput. Anything that does
+# not move the number is left at the IDF default so the configuration stays
+# readable. The target is NOT set here: ESP-IDF refuses a build whose
+# sdkconfig.defaults names a different chip, so pick it on the command line
+# (`idf.py set-target esp32s3` or `esp32c5`, see README.md). The CPU1 lines
+# below simply do not apply on the single-core C5.
 
 # ---------------------------------------------------------------- CPU / build
 # 240 MHz. The send path is CPU bound long before the radio is: at 4000
