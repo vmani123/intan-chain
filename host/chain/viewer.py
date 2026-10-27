@@ -620,6 +620,13 @@ class Scope:
     """
 
     FRAME_MS = 33
+    # The header is three lines -- status, hover readout, key help -- placed in
+    # points below the window's top edge, one line each, so they cannot run into
+    # each other or into the map title whatever the window size; _layout() keeps
+    # the plots PLOTS_PT below the top as the window is resized.
+    STATUS_PT, HOVER_PT, HELP_PT = 6, 21, 36    # top of each line
+    BAND_PT = 34                                # status + hover: the repainted band
+    PLOTS_PT = 74                               # top of the activity map, under its title
 
     def __init__(self, acq, kind: str, window_s: float = 2.0, spacing_uv: float = None,
                  clock=time.monotonic):
@@ -628,7 +635,7 @@ class Scope:
         from matplotlib.collections import LineCollection
         from matplotlib.colors import LinearSegmentedColormap, LogNorm
         from matplotlib.patches import Rectangle
-        from matplotlib.transforms import blended_transform_factory
+        from matplotlib.transforms import blended_transform_factory, offset_copy
         self.np, self.plt = np, plt
         self.acq, self.kind, self.window_s, self.clock = acq, kind, window_s, clock
         self.shared_uv = spacing_uv          # None: auto when shared mode is on
@@ -654,9 +661,9 @@ class Scope:
             self.fig.canvas.manager.set_window_title("intan-chain: 128-channel activity")
         except Exception:
             pass
-        gs = self.fig.add_gridspec(2, 4, height_ratios=[1.0, 1.75], hspace=0.16,
-                                   wspace=0.32, left=0.045, right=0.955, top=0.9,
-                                   bottom=0.05)
+        gs = self.gs = self.fig.add_gridspec(2, 4, height_ratios=[1.0, 1.75], hspace=0.16,
+                                             wspace=0.32, left=0.045, right=0.955, top=0.9,
+                                             bottom=0.05)    # top: set by _layout()
 
         # ---- activity map ----
         self.amap = self.fig.add_subplot(gs[0, :])
@@ -695,7 +702,7 @@ class Scope:
                             edgecolor=CRITICAL, visible=False, animated=True)
             self.amap.add_patch(box)
             self.tile_box.append(box)
-        cax = self.fig.add_axes([0.962, 0.635, 0.008, 0.265])
+        cax = self.cax = self.fig.add_axes([0.962, 0.635, 0.008, 0.265])   # see _layout()
         cb = self.fig.colorbar(self.img, cax=cax)
         cb.set_ticks([1, 10, 100, 1000, 10000])
         cb.set_ticklabels(["1 µV", "10 µV", "100 µV", "1 mV", "10 mV"])
@@ -744,18 +751,35 @@ class Scope:
             self.lcs.append(lc)
             self.dots.append(dots)
 
-        self.status = self.fig.text(0.045, 0.975, "", fontsize=9, family="monospace",
-                                    va="top", color=INK, animated=True)
-        self.hover = self.fig.text(0.045, 0.947, "hover a tile or a lane for details",
-                                   fontsize=9, va="top", color=INK_2, animated=True)
-        self.help = self.fig.text(0.955, 0.975, "", fontsize=8, ha="right", va="top",
-                                  color=INK_2)
+        def below_top(pt):
+            return offset_copy(self.fig.transFigure, fig=self.fig, y=-pt, units="points")
+        self.status = self.fig.text(0.045, 1.0, "", fontsize=9, family="monospace",
+                                    va="top", color=INK, animated=True,
+                                    transform=below_top(self.STATUS_PT))
+        self.hover = self.fig.text(0.045, 1.0, "hover a tile or a lane for details",
+                                   fontsize=9, va="top", color=INK_2, animated=True,
+                                   transform=below_top(self.HOVER_PT))
+        self.help = self.fig.text(0.045, 1.0, "", fontsize=8, va="top", color=INK_2,
+                                  transform=below_top(self.HELP_PT))
         self._set_help()
+        self._layout()
         c = self.fig.canvas
+        c.mpl_connect("resize_event", self._layout)
         c.mpl_connect("draw_event", self._on_draw)
         c.mpl_connect("key_press_event", self._key)
         c.mpl_connect("motion_notify_event", self._motion)
         c.mpl_connect("close_event", lambda _ev: self._close())
+
+    # ---- layout ----
+    def _layout(self, _ev=None):
+        """Start the plots PLOTS_PT below the top edge at any window height, under
+        the header, instead of at a fixed fraction of the window."""
+        top = 1.0 - self.PLOTS_PT / 72.0 / self.fig.get_figheight()
+        self.gs.update(top=max(0.5, top))
+        for ax in [self.amap] + self.axes:
+            ax.set_position(ax.get_subplotspec().get_position(self.fig))
+        p = self.amap.get_position()
+        self.cax.set_position([0.962, p.y0, 0.008, p.height])
 
     # ---- regions ----
     def _regions(self):
@@ -776,8 +800,12 @@ class Scope:
             out[f"scale{m}"] = (Bbox.from_extents(x0, ax.bbox.y0 - 6, x1, ax.bbox.y1 + 6),
                                 self.scale_txt[m])
             out[f"lanes{m}"] = (ax.bbox.frozen(), [self.rimgs[m], self.lcs[m], self.dots[m]])
-        (x0, y0), (x1, y1) = fig.transFigure.transform([(0.0, 0.925), (0.6, 1.0)])
-        out["status"] = (Bbox.from_extents(x0, y0, x1, y1), [self.status, self.hover])
+        # The full width of the status and hover lines, so a line that gets shorter
+        # is erased in full; the help line below the band is static and stays out.
+        band = self.BAND_PT * fig.dpi / 72.0
+        out["status"] = (Bbox.from_extents(fig.bbox.x0, fig.bbox.y1 - band,
+                                           fig.bbox.x1, fig.bbox.y1),
+                         [self.status, self.hover])
         return out
 
     def _on_draw(self, _ev):
