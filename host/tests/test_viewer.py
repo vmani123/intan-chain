@@ -240,3 +240,80 @@ def test_shared_scale_uses_one_half_range_for_every_lane():
     assert np.allclose(half, half[0])
     assert np.abs(y[:, 0]).max() < np.abs(y[:, 1]).max()     # small stays small
     assert np.abs(y[:, 2]).max() == pytest.approx(V.LANE_CLIP)   # big clips at the edge
+
+
+# --- speed: the window, decimation, rasterized lanes, the acquisition thread --
+
+def test_buffers_window_returns_only_the_newest_seconds():
+    np = pytest.importorskip("numpy")
+    buf = V.Buffers(depth=100)
+    for k in range(50):
+        buf.push(k, [k] * 128, k * 0.1)
+    t, data = buf.window(1.0)
+    assert t[0] == pytest.approx(3.9) and t[-1] == pytest.approx(4.9)
+    assert data.shape == (len(t), 128) and data[0, 0] == 39 and data[-1, 127] == 49
+
+
+def test_minmax_envelope_keeps_every_extreme_and_the_time_order():
+    np = pytest.importorskip("numpy")
+    t = np.arange(4000) * 0.0005
+    uv = np.zeros((4000, 2), np.float32)
+    uv[1234, 0], uv[3001, 1] = 500.0, -700.0               # one-sample spikes
+    x, y = V.minmax_envelope(t, uv, max_bins=300)
+    assert len(x) == 600 and y.shape == (600, 2)
+    assert y[:, 0].max() == 500.0 and y[:, 1].min() == -700.0
+    assert np.all(np.diff(x) >= 0)
+    x2, y2 = V.minmax_envelope(t[:100], uv[:100], max_bins=300)   # short: untouched
+    assert len(x2) == 100
+
+
+def test_lane_blocks_draw_a_spike_full_height_and_a_flat_line_thin():
+    np = pytest.importorskip("numpy")
+    bins, px = 50, 21
+    y = np.zeros((2 * bins, 2))
+    y[2 * 20 + 1, 0] = 0.48                               # channel 0 spikes in bin 20
+    colors = np.array([7, 9], np.uint32)
+    b = V.lane_blocks(y, px, colors, width=bins)
+    assert b.shape == (2, px, bins)
+    assert set(np.unique(b[0])) == {0, 7} and set(np.unique(b[1])) == {0, 9}
+    assert (b[0, :, 20] == 7).sum() > px // 3              # the spike is a tall span
+    assert (b[1] == 9).sum(axis=0).max() == 1              # flat: one pixel per column
+    assert V.lane_blocks(y, px, colors, width=2 * bins).shape == (2, px, 2 * bins)
+
+
+def test_compose_lanes_puts_each_lane_on_its_own_rows():
+    np = pytest.importorskip("numpy")
+    blocks = np.zeros((3, 4, 5), np.uint32)
+    blocks[0], blocks[1], blocks[2] = 1, 2, 3
+    img = V.compose_lanes(blocks, 12, centers=[2, 6, 10])
+    assert img.shape == (12, 5)
+    assert set(np.unique(img[0:4])) == {1} and set(np.unique(img[4:8])) == {2}
+    assert set(np.unique(img[8:12])) == {3}
+
+
+def test_acquirer_publishes_snapshots_off_the_drawing_thread():
+    pytest.importorskip("numpy")
+
+    class Counting:
+        def __init__(self):
+            self.k = 0
+
+        def poll(self, buf):
+            buf.push(self.k, [self.k % 7] * 128, self.k * 0.001)
+            self.k += 1
+            return 1
+
+        def close(self):
+            pass
+
+    acq = V.Acquirer(Counting(), V.Buffers(depth=500), "uart", window_s=0.2).start()
+    try:
+        deadline = time.monotonic() + 5
+        while acq.latest() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        snap = acq.latest()
+        assert snap is not None and snap.n > 0 and snap.env.shape[1] == 128
+        assert snap.stat(0).max_uv >= snap.stat(0).min_uv
+    finally:
+        acq.stop()
+    assert not acq.th.is_alive()
