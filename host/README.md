@@ -79,12 +79,16 @@ No hardware, no network beyond loopback.
 ## Real RHD2164 bring-up
 
 Two RHD2164s share CS, SCLK and MOSI; each has its own MISO (`miso0`, `miso1`),
-128 channels in all. Install the extras once:
+128 channels in all. Install the extras once, into a venv so the system
+Python is left alone (`--system-site-packages` reuses a matplotlib/numpy that
+is already installed; drop it to install them fresh):
 
-    python3 -m pip install pyserial matplotlib numpy
+    python3 -m venv --system-site-packages ~/.venvs/intan-chain
+    ~/.venvs/intan-chain/bin/python -m pip install -r requirements-viewer.txt
 
-`numpy` and `matplotlib` are only needed to draw; bring-up and the headless
-viewer are standard library plus pyserial. The Arty's FTDI shows up as two
+and run the tools below with `~/.venvs/intan-chain/bin/python` in place of
+`python3`. `numpy` and `matplotlib` are only needed to draw; bring-up and the
+headless viewer are standard library plus pyserial. The Arty's FTDI shows up as two
 ports: the first (`...960`) is JTAG and never answers, the UART is the second
 (`...961`).
 

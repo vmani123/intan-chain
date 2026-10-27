@@ -91,6 +91,15 @@ idf.py -B build/c5_qspi -DSDKCONFIG=build/c5_qspi/sdkconfig -DBENCH_INGRESS=qspi
 On a network that admits only registered devices (CMU-DEVICE), register the
 C5's own MAC first; the network otherwise drops it right after it associates.
 
+The C5 builds and runs with the same ESP-IDF tree as the S3
+(`v6.0-dev-2980-gab149384e1`); CI's `release-v5.4` image builds the S3 only.
+`sdkconfig` stays local (it is gitignored: it carries the network and the
+host's address). On the bench both boards use, under **intan-chain benchmark
+node**: SSID `CMU-DEVICE`, an empty password (open network, MAC registered),
+the Mac's current IPv4 address as the host, and a 2000 Hz synthetic rate. The
+host address is whatever CMU-SECURE gave the Mac (`ipconfig getifaddr en0`);
+it changes, and the node must be rebuilt when it does.
+
 To prove the FPGA -> ESP link without any network, set **intan-chain
 benchmark node -> QSPI link test** (`CONFIG_CHAIN_LINK_TEST_NO_WIFI`). The
 radio never starts; `main/sink_check.c` checks every datagram's five frame
