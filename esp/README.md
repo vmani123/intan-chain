@@ -91,6 +91,20 @@ idf.py -B build/c5_qspi -DSDKCONFIG=build/c5_qspi/sdkconfig -DBENCH_INGRESS=qspi
 On a network that admits only registered devices (CMU-DEVICE), register the
 C5's own MAC first; the network otherwise drops it right after it associates.
 
+To prove the FPGA -> ESP link without any network, set **intan-chain
+benchmark node -> QSPI link test** (`CONFIG_CHAIN_LINK_TEST_NO_WIFI`). The
+radio never starts; `main/sink_check.c` checks every datagram's five frame
+headers (magic, type, 128 channels, payload length, seq running on) and drops
+it, logging once a second:
+
+```
+link: 400 dgram/s | total 12000 | frames ok 60000 bad 0 | seq gaps 0 (0 frames) | last seq 59999
+```
+
+`bad` above zero is a bus fault (the first bad header is hex-dumped); seq gaps
+with zero bad frames are datagrams the FPGA dropped itself (its OVERRUNS). Run
+the FPGA's internal pattern (`MODE` bit 2) at 2 kS/s, which is 400 datagrams/s.
+
 
 ## Build
 

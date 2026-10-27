@@ -28,6 +28,7 @@
 void source_synth_start(void);
 void source_qspi_start(void);
 void sink_udp_start(void);
+void sink_check_start(void);
 void echo_start(void);
 
 static const char *TAG = "chain";
@@ -72,6 +73,7 @@ void app_main(void)
 
     banner();
 
+#if !CONFIG_CHAIN_LINK_TEST_NO_WIFI
     /* A node with no link has nothing to measure. Reboot rather than idle, so
      * an unattended bench run recovers by itself when the AP comes back. */
     if (wifi_connect() != ESP_OK) {
@@ -79,11 +81,16 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(5000));
         esp_restart();
     }
+#endif
 
     ESP_ERROR_CHECK(pipe_init());
 
+#if CONFIG_CHAIN_LINK_TEST_NO_WIFI
+    sink_check_start();     /* checks and drops: the link without the radio */
+#else
     sink_udp_start();
     echo_start();
+#endif
 
 #if defined(BENCH_INGRESS_QSPI)
     source_qspi_start();

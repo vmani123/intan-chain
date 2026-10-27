@@ -47,6 +47,17 @@ config CHAIN_SYNTH_REALISTIC
         codec needs to show a plausible ratio. Default is CHECK because
         correctness has to be established before a ratio means anything.
 
+config CHAIN_LINK_TEST_NO_WIFI
+    bool "QSPI link test: no Wi-Fi, check each datagram on the node"
+    default n
+    help
+        Never start the radio. Every datagram that arrives (over QSPI, or
+        from the synthetic source) has its five frame headers checked here
+        -- magic, type, channel count, payload length, seq running on --
+        and is then dropped; a 1 Hz "link:" line reports the counts. Proves
+        the FPGA -> ESP link before the node is admitted to the network,
+        and keeps the radio's current off a shared ground while debugging.
+
 config CHAIN_QSPI_PIN_SCAN
     bool "Find the QSPI wiring at boot (bench diagnostic)"
     default n

@@ -8,6 +8,7 @@ idf_component_register(
         "source_synth.c"
         "source_qspi.c"
         "sink_udp.c"
+        "sink_check.c"
         "echo.c"
         "wifi.c"
     INCLUDE_DIRS "."
