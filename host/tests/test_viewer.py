@@ -197,3 +197,46 @@ def test_cli_headless_udp_runs_without_a_display():
     assert V.main(["--udp", "--udp-port", "0", "--headless", "0.3"], out=out.append) == 0
     assert any("frames 0" in l for l in out)
     assert "matplotlib" not in sys.modules
+
+
+# --- the activity map and the lanes -----------------------------------------
+
+def test_grid_puts_each_module_in_two_rows_and_round_trips():
+    seen = set()
+    for ch in range(128):
+        r, c = V.grid_pos(ch)
+        assert 0 <= r < V.GRID_ROWS and 0 <= c < V.GRID_COLS
+        assert r // 2 == ch // 32                 # module m owns rows 2m and 2m+1
+        assert V.grid_channel(r, c) == ch
+        seen.add((r, c))
+    assert len(seen) == 128
+
+
+def test_fmt_uv_picks_a_readable_unit():
+    assert V.fmt_uv(2.34) == "2.3 µV"
+    assert V.fmt_uv(850) == "850 µV"
+    assert V.fmt_uv(1830) == "1.8 mV"
+    assert V.fmt_uv(12_400) == "12 mV"
+
+
+def test_lanes_never_cross_and_say_what_a_lane_means():
+    np = pytest.importorskip("numpy")
+    rng = np.random.default_rng(1)
+    uv = rng.normal(0, 1, (500, 4)) * np.array([3.0, 300.0, 3000.0, 0.0]) + 500.0
+    y, half = V.lane_values(uv)
+    assert np.all(np.abs(y) <= V.LANE_CLIP)            # nothing leaves its lane
+    assert half[2] > half[1] > half[0]                       # labels track each channel
+    assert np.all(y[:, 3] == 0)                              # a flat channel stays flat
+    assert half[3] >= V.MIN_HALF_UV                     # and is not magnified
+    # each live channel uses its lane: its excursion reaches near LANE_FILL
+    for ch in range(3):
+        assert 0.3 < np.percentile(np.abs(y[:, ch]), 99) <= V.LANE_CLIP
+
+
+def test_shared_scale_uses_one_half_range_for_every_lane():
+    np = pytest.importorskip("numpy")
+    uv = np.outer(np.sin(np.linspace(0, 20, 400)), [10.0, 100.0, 1000.0])
+    y, half = V.lane_values(uv, shared_half=100.0)
+    assert np.allclose(half, half[0])
+    assert np.abs(y[:, 0]).max() < np.abs(y[:, 1]).max()     # small stays small
+    assert np.abs(y[:, 2]).max() == pytest.approx(V.LANE_CLIP)   # big clips at the edge

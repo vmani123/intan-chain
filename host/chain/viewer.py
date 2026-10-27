@@ -325,43 +325,234 @@ def run_headless(source, buf: Buffers, seconds: float, out=print, clock=time.mon
 
 
 # ---------------------------------------------------------------------------
+# What the display shows, as plain functions (tested without a display)
+# ---------------------------------------------------------------------------
+# The activity map is 8 rows x 16 columns: module m (chip0 A, chip0 B, chip1 A,
+# chip1 B) fills rows 2m and 2m+1, channels in order left to right.
+GRID_ROWS, GRID_COLS = 8, 16
+MIN_HALF_UV = 2.0        # a lane never magnifies below ±2 µV: ADC noise stays small
+LANE_FILL = 0.45         # a channel's 99th-percentile excursion fills this much of a lane
+LANE_CLIP = 0.48         # and nothing ever leaves it
+
+# Colours (light surface). One sequential hue for magnitude, one series colour
+# for the traces, reserved status colours that always come with a text tag.
+SURFACE = "#fcfcfb"
+INK, INK_2, INK_3 = "#0b0b0b", "#52514e", "#8c8b86"
+TRACE = "#2a78d6"
+CRITICAL = "#d03b3b"     # railed
+DEAD_FILL = "#e4e3df"
+SEQ_BLUE = ("#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5",
+            "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b")
+ACT_MIN_UV, ACT_MAX_UV = 1.0, 10_000.0   # activity colour scale, log
+
+
+def grid_pos(ch: int) -> tuple[int, int]:
+    """(row, column) of a channel's tile in the activity map."""
+    m, i = divmod(ch, 32)
+    return 2 * m + i // GRID_COLS, i % GRID_COLS
+
+
+def grid_channel(row: int, col: int) -> int:
+    """The channel shown at (row, column); the inverse of grid_pos."""
+    m, r = divmod(row, 2)
+    return 32 * m + GRID_COLS * r + col
+
+
+def fmt_uv(v: float) -> str:
+    """Short microvolt label: '850 µV', '1.8 mV', '12 mV'."""
+    a = abs(v)
+    if a >= 10_000:
+        return f"{v / 1000:.0f} mV"
+    if a >= 1000:
+        return f"{v / 1000:.1f} mV"
+    if a >= 10:
+        return f"{v:.0f} µV"
+    return f"{v:.1f} µV"
+
+
+def lane_values(uv, shared_half=None):
+    """Each channel's samples mapped into its own lane, never past it.
+
+    uv is (samples, channels) in microvolts. Every channel is centred on its
+    median. With shared_half None each channel is scaled by its own
+    99th-percentile excursion, so a channel's activity is visible whatever its
+    size; with shared_half (uV) all lanes use one scale and compare directly.
+    Values are clipped to +-LANE_CLIP of a lane, so a trace can never draw over
+    its neighbour -- the failure that made the first version unreadable.
+    Returns (y in lane units, half-range in uV that a full lane means).
+    """
+    import numpy as np
+    centre = np.median(uv, axis=0)
+    dev = uv - centre
+    if shared_half is None:
+        half = np.maximum(np.percentile(np.abs(dev), 99, axis=0), MIN_HALF_UV)
+    else:
+        half = np.full(uv.shape[1], max(float(shared_half), MIN_HALF_UV))
+    y = np.clip(LANE_FILL * dev / half, -LANE_CLIP, LANE_CLIP)
+    return y, half / LANE_FILL * LANE_CLIP
+
+
+# ---------------------------------------------------------------------------
 # Drawing (matplotlib and numpy imported here only)
 # ---------------------------------------------------------------------------
 
 class Scope:
-    """Four panels (chip0 A, chip0 B, chip1 A, chip1 B), 32 offset traces each."""
+    """Activity map (top) and per-channel lanes (bottom) for all 128 channels.
+
+    Keys: s  per-channel <-> shared scale for the lanes
+          space  freeze the display (acquisition carries on)
+    Hover a tile or a lane for that channel's numbers.
+    """
 
     def __init__(self, source, buf: Buffers, kind: str, link: LinkPoller = None,
-                 window_s: float = 2.0, spacing_uv: float = 200.0, demean: bool = True,
+                 window_s: float = 2.0, spacing_uv: float = None, demean: bool = True,
                  max_points: int = 1500, clock=time.monotonic):
         import matplotlib.pyplot as plt
         import numpy as np
+        from matplotlib.colors import LinearSegmentedColormap, LogNorm
+        from matplotlib.patches import Rectangle
         self.np, self.plt = np, plt
         self.source, self.buf, self.kind, self.link = source, buf, kind, link
-        self.window_s, self.demean, self.max_points, self.clock = (window_s, demean,
-                                                                   max_points, clock)
-        self.fig, self.axes = plt.subplots(1, 4, figsize=(17, 9.5), sharex=True)
-        self.fig.subplots_adjust(left=0.05, right=0.99, top=0.93, bottom=0.05, wspace=0.28)
-        self.offsets = np.arange(32)[::-1] * spacing_uv
-        self.lines = []
-        for m, ax in enumerate(self.axes):
-            ax.set_title(MODULES[m] + f"  (ch {32 * m}-{32 * m + 31})", fontsize=10)
-            ax.set_ylim(-spacing_uv, 32 * spacing_uv)
-            ax.set_yticks(self.offsets)
-            ax.set_yticklabels([f"{32 * m + i}" for i in range(32)], fontsize=7)
-            ax.tick_params(axis="x", labelsize=7)
-            ax.set_xlabel("s", fontsize=8)
-            ax.grid(axis="x", alpha=0.3)
-            for _ in range(32):
-                (ln,) = ax.plot([], [], lw=0.6, color="#1f4e79")
-                self.lines.append(ln)
-        self.status = self.fig.text(0.01, 0.975, "", fontsize=9, family="monospace", va="top")
-        self.fig.text(0.99, 0.975, f"traces {spacing_uv:g} uV apart; "
-                      f"{'mean removed; ' if demean else ''}red = railed, grey dashed = dead; "
-                      f"tick labels: channel, rms uV", fontsize=8, ha="right", va="top")
+        self.window_s, self.max_points, self.clock = window_s, max_points, clock
+        self.shared_uv = spacing_uv          # None: auto when shared mode is on
+        self.shared = False
+        self.paused = False
+        self.stats = None                    # per-channel numbers for hover
         self.labels_t = -1e9
-        self.rms = None
 
+        plt.rcParams.update({"font.family": "sans-serif", "font.size": 8,
+                             "axes.edgecolor": INK_3, "axes.labelcolor": INK_2,
+                             "xtick.color": INK_2, "ytick.color": INK_2,
+                             "text.color": INK})
+        self.fig = plt.figure(figsize=(16, 10), facecolor=SURFACE)
+        try:
+            self.fig.canvas.manager.set_window_title("intan-chain: 128-channel activity")
+        except Exception:
+            pass
+        gs = self.fig.add_gridspec(2, 4, height_ratios=[1.0, 1.75], hspace=0.16,
+                                   wspace=0.32, left=0.045, right=0.955, top=0.9,
+                                   bottom=0.05)
+
+        # ---- activity map ----
+        self.amap = self.fig.add_subplot(gs[0, :])
+        self.amap.set_facecolor(SURFACE)
+        cmap = LinearSegmentedColormap.from_list("seq_blue", SEQ_BLUE)
+        cmap.set_bad(DEAD_FILL)
+        self.norm = LogNorm(ACT_MIN_UV, ACT_MAX_UV, clip=True)
+        self.grid = np.full((GRID_ROWS, GRID_COLS), np.nan)
+        self.img = self.amap.imshow(self.grid, cmap=cmap, norm=self.norm, aspect="auto",
+                                    interpolation="nearest")
+        self.amap.set_xticks([])
+        self.amap.set_yticks([2 * m + 0.5 for m in range(4)])
+        self.amap.set_yticklabels(MODULES, fontsize=9, color=INK)
+        self.amap.tick_params(length=0)
+        for s in self.amap.spines.values():
+            s.set_visible(False)
+        for m in range(1, 4):                 # white rules between modules
+            self.amap.axhline(2 * m - 0.5, color=SURFACE, lw=3)
+        for r in range(GRID_ROWS):            # thin surface gaps between tiles
+            self.amap.axhline(r - 0.5, color=SURFACE, lw=1)
+        for c in range(GRID_COLS + 1):
+            self.amap.axvline(c - 0.5, color=SURFACE, lw=1)
+        self.amap.set_title("activity: RMS over the window, per channel", loc="left",
+                            fontsize=10, color=INK, pad=6)
+        self.tile_txt, self.tile_box = [], []
+        for ch in range(C.N_CH):
+            r, c = grid_pos(ch)
+            self.tile_txt.append(self.amap.text(c, r, f"{ch}", ha="center", va="center",
+                                                fontsize=7.5, color=INK))
+            box = Rectangle((c - 0.46, r - 0.42), 0.92, 0.84, fill=False, lw=1.8,
+                            edgecolor=CRITICAL, visible=False)
+            self.amap.add_patch(box)
+            self.tile_box.append(box)
+        cax = self.fig.add_axes([0.962, 0.635, 0.008, 0.265])
+        cb = self.fig.colorbar(self.img, cax=cax)
+        cb.set_ticks([1, 10, 100, 1000, 10000])
+        cb.set_ticklabels(["1 µV", "10 µV", "100 µV", "1 mV", "10 mV"])
+        cb.ax.tick_params(labelsize=7, color=INK_3)
+        cb.outline.set_visible(False)
+
+        # ---- lanes ----
+        self.axes, self.lines, self.scale_ax = [], [], []
+        self.lane_y = np.arange(32)[::-1].astype(float)   # channel 0 on top
+        for m in range(4):
+            ax = self.fig.add_subplot(gs[1, m])
+            ax.set_facecolor(SURFACE)
+            ax.set_title(f"{MODULES[m]}  (ch {32 * m}-{32 * m + 31})", fontsize=9,
+                         color=INK, loc="left")
+            ax.set_ylim(-0.6, 31.6)
+            ax.set_yticks(self.lane_y)
+            ax.set_yticklabels([str(32 * m + i) for i in range(32)], fontsize=6.5)
+            ax.tick_params(axis="y", length=0, pad=2)
+            ax.tick_params(axis="x", labelsize=7)
+            ax.set_xlabel("seconds before now", fontsize=7)
+            for y in self.lane_y:              # faint lane separators
+                ax.axhline(y - 0.5, color="#eeede9", lw=0.6, zorder=0)
+            for s in ("top", "right"):
+                ax.spines[s].set_visible(False)
+            sx = ax.twinx()                    # right edge: what a full lane means
+            sx.set_ylim(ax.get_ylim())
+            sx.set_yticks(self.lane_y)
+            sx.set_yticklabels([""] * 32, fontsize=6, color=INK_3)
+            sx.tick_params(axis="y", length=0, pad=1)
+            for s in sx.spines.values():
+                s.set_visible(False)
+            for i in range(32):
+                (ln,) = ax.plot([], [], lw=0.8, color=TRACE, solid_capstyle="round")
+                self.lines.append(ln)
+            self.axes.append(ax)
+            self.scale_ax.append(sx)
+
+        self.status = self.fig.text(0.045, 0.975, "", fontsize=9, family="monospace",
+                                    va="top", color=INK)
+        self.hover = self.fig.text(0.045, 0.947, "hover a tile or a lane for details",
+                                   fontsize=9, va="top", color=INK_2)
+        self.help = self.fig.text(0.955, 0.975, "", fontsize=8, ha="right", va="top",
+                                  color=INK_2)
+        self.fig.canvas.mpl_connect("key_press_event", self._key)
+        self.fig.canvas.mpl_connect("motion_notify_event", self._motion)
+        self._set_help()
+
+    # ---- interaction ----
+    def _set_help(self):
+        mode = "shared scale" if self.shared else "each lane scaled to its own channel"
+        self.help.set_text(f"lanes: {mode}  [s] switch   [space] "
+                           f"{'resume' if self.paused else 'freeze'}   "
+                           "red box + RAIL = at the ADC rail; grey + DEAD = no change")
+
+    def _key(self, ev):
+        if ev.key == "s":
+            self.shared = not self.shared
+            self.labels_t = -1e9
+        elif ev.key == " ":
+            self.paused = not self.paused
+        self._set_help()
+        self.fig.canvas.draw_idle()
+
+    def _channel_at(self, ev):
+        if ev.inaxes is self.amap and ev.xdata is not None:
+            r, c = int(round(ev.ydata)), int(round(ev.xdata))
+            if 0 <= r < GRID_ROWS and 0 <= c < GRID_COLS:
+                return grid_channel(r, c)
+        for m, ax in enumerate(self.axes + self.scale_ax):
+            if ev.inaxes is ax and ev.ydata is not None:
+                lane = int(round(31 - ev.ydata))
+                if 0 <= lane < 32:
+                    return 32 * (m % 4) + lane
+        return None
+
+    def _motion(self, ev):
+        ch = self._channel_at(ev)
+        if ch is None or self.stats is None:
+            return
+        s = self.stats[ch]
+        tag = {"railed": "  RAIL", "dead": "  DEAD"}.get(s.flag, "")
+        self.hover.set_text(f"ch {ch} ({MODULES[ch // 32]} #{ch % 32}):  rms {fmt_uv(s.rms_uv)}"
+                            f"   mean {fmt_uv(s.mean_uv)}   min {fmt_uv(s.min_uv)}"
+                            f"   max {fmt_uv(s.max_uv)}   n {s.n}{tag}")
+        self.fig.canvas.draw_idle()
+
+    # ---- one frame ----
     def update(self, _frame=None):
         np, buf = self.np, self.buf
         self.source.poll(buf)
@@ -369,7 +560,7 @@ class Scope:
         now = self.clock()
         self.status.set_text(status_line(buf, now, self.kind, lk,
                                          self.link.error if self.link else ""))
-        if not buf.t:
+        if self.paused or not buf.t:
             return self.lines
         t = np.fromiter(buf.t, float, len(buf.t))
         data = np.frombuffer(buf.raw(), dtype=np.int16).reshape(-1, buf.n_ch)
@@ -381,23 +572,55 @@ class Scope:
         dead = (lo == hi) & (len(data) >= 2)
         railed = np.maximum(np.abs(lo.astype(int)), np.abs(hi.astype(int))) >= RAIL_LSB
         uv = data.astype(float) * R.SCALE_UV
-        self.rms = uv.std(axis=0)
+        rms = uv.std(axis=0)
+        self.stats = [ChannelStat(ch, len(uv), float(uv[:, ch].mean()), float(rms[ch]),
+                                  float(uv[:, ch].min()), float(uv[:, ch].max()),
+                                  bool(dead[ch]), bool(railed[ch]))
+                      for ch in range(buf.n_ch)]
+
+        # activity map: dead tiles are NaN, drawn in the 'bad' grey
+        grid = np.full((GRID_ROWS, GRID_COLS), np.nan)
+        for ch in range(buf.n_ch):
+            if not dead[ch]:
+                r, c = grid_pos(ch)
+                grid[r, c] = max(rms[ch], ACT_MIN_UV)
+        self.img.set_data(grid)
+
+        # lanes
+        shared = None
+        if self.shared:
+            ok = ~railed & ~dead
+            shared = self.shared_uv or (float(np.percentile(
+                np.abs(uv[:, ok] - np.median(uv[:, ok], axis=0)), 99)) if ok.any() else 100.0)
+        y, half = lane_values(uv, shared)
         step = max(1, len(t) // self.max_points)
         x = t[::step] - t[-1]
-        y = uv[::step]
-        if self.demean:
-            y = y - uv.mean(axis=0)
+        y = y[::step]
+        marker = "o" if len(x) < 120 else ""            # sparse UART snapshots: show the points
         for ch, ln in enumerate(self.lines):
-            ln.set_data(x, y[:, ch] + self.offsets[ch % 32])
-            ln.set_color("#c00000" if railed[ch] else "#999999" if dead[ch] else "#1f4e79")
-            ln.set_linestyle("--" if dead[ch] else "-")
+            ln.set_data(x, y[:, ch] + self.lane_y[ch % 32])
+            ln.set_color(CRITICAL if railed[ch] else INK_3 if dead[ch] else TRACE)
+            ln.set_marker(marker)
+            ln.set_markersize(1.6)
         for ax in self.axes:
             ax.set_xlim(-self.window_s, 0)
-        if now - self.labels_t > 1.0:      # rms labels once a second: text is slow
+
+        if now - self.labels_t > 1.0:      # text is the slow part: once a second
             self.labels_t = now
-            for m, ax in enumerate(self.axes):
-                ax.set_yticklabels([f"{32 * m + i} {self.rms[32 * m + i]:5.1f}"
-                                    for i in range(32)], fontsize=7)
+            for ch in range(buf.n_ch):
+                r, c = grid_pos(ch)
+                txt = self.tile_txt[ch]
+                if dead[ch]:
+                    txt.set_text(f"{ch}\nDEAD")
+                    txt.set_color(INK_2)
+                else:
+                    txt.set_text(f"{ch}\n{fmt_uv(rms[ch])}" + ("\nRAIL" if railed[ch] else ""))
+                    shade = self.img.cmap(self.norm(max(rms[ch], ACT_MIN_UV)))
+                    lum = 0.2126 * shade[0] + 0.7152 * shade[1] + 0.0722 * shade[2]
+                    txt.set_color(SURFACE if lum < 0.45 else INK)
+                self.tile_box[ch].set_visible(bool(railed[ch]))
+            for m, sx in enumerate(self.scale_ax):
+                sx.set_yticklabels([f"±{fmt_uv(half[32 * m + i])}" for i in range(32)])
         return self.lines
 
     def show(self):
@@ -435,7 +658,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--lower", type=float, default=1.0)
     ap.add_argument("--upper", type=float, default=500.0)
     ap.add_argument("--window", type=float, default=2.0, help="seconds shown")
-    ap.add_argument("--spacing", type=float, default=200.0, help="uV between traces")
+    ap.add_argument("--spacing", type=float, default=None, metavar="UV",
+                    help="half-height of a lane in the shared-scale view (key s); "
+                         "default: the 99th percentile of all live channels")
     ap.add_argument("--no-demean", action="store_true", help="draw raw values, offsets included")
     ap.add_argument("--headless", type=float, default=None, metavar="N",
                     help="no display: run N seconds, print status and per-channel stats")

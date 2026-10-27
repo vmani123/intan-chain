@@ -106,8 +106,10 @@ python3 -m chain.viewer --uart --serial /dev/cu.usbserial-210352BF97961
 python3 -m chain.viewer --udp --serial /dev/cu.usbserial-210352BF97961 --start
 ```
 
-`--start` configures the chips (S3–S5) and sets `run`. Channels are shown in
-microvolts (0.195 µV/LSB, two's complement), four panels: chip 0 A/B, chip 1 A/B.
+`--start` configures the chips (S3–S5) and sets `run`. The window has an
+activity map (one tile per channel, coloured by RMS) above 128 lanes, each
+scaled to its own channel and clipped to its lane; `s` switches to one shared
+scale, space freezes, hovering shows a channel's numbers. See `host/README.md`.
 
 ## 5. Pinpointing a fault
 

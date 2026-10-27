@@ -134,8 +134,19 @@ per S6 snapshot. If the USB serial driver adds latency per read, lower
     python3 -m chain.viewer --uart --serial PORT           # no ESP: diagnostic snapshots
     python3 -m chain.viewer --udp --headless 10            # no display: status + per-channel stats
 
-Four panels (chip 0 A/B, chip 1 A/B), 32 offset traces each, with each
-channel's rms in its label; red traces are railed, grey dashed are dead. The
-status line shows frame rate, seq gaps and frames lost, malformed datagrams,
-and, with `--serial`, LINK_ERR per lane. `--uart` needs no ESP but runs at a
-few snapshots per second at best: it shows which channels are alive, not EMG.
+Top: an **activity map**, one tile per channel (8 x 16; two rows per module:
+chip 0 A, chip 0 B, chip 1 A, chip 1 B), coloured by RMS over the window on a
+log scale (1 µV to 10 mV) and labelled with the channel and its RMS. A red box
+and RAIL mark a channel at the ADC rail; grey and DEAD one that never changed.
+
+Bottom: four panels of 32 **lanes**. Each channel is centred on its median and
+scaled to its own 99th-percentile excursion, then clipped to its lane, so no
+trace can draw over another; the right edge says what a full lane means
+(e.g. ±1.8 mV). Press `s` for one shared scale across all lanes (to compare
+amplitudes; `--spacing UV` fixes it), space to freeze the display, and hover a
+tile or a lane for that channel's RMS, mean, min and max.
+
+The status line shows frame rate, seq gaps and frames lost, malformed
+datagrams, and, with `--serial`, LINK_ERR per lane. `--uart` needs no ESP but
+runs at about one snapshot per second: it shows which channels are alive and
+how active, not EMG waveforms.
