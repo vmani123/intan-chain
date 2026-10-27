@@ -44,6 +44,8 @@ class ChipFaults:
     ab_swap: bool = False        # chip emits module B in A's slots and vice versa
     mosi_xor: int = 0            # bits flipped in every command the chip receives
     mosi_invert: bool = False    # MOSI pair reversed: the chip receives ~command
+    mosi_stuck: int | None = None  # MOSI never toggles at the chip: every command is this
+    adc_frozen: int | None = None  # unconfigured ADC: every CONVERT returns this code
     dead_module: str = ""        # 'A', 'B' or 'AB': CONVERT results stuck for that half
     chip_id: int = R.CHIP_ID_RHD2164
     link_flaky: float = 0.0      # probability per streamed sweep of a corrupt READ(59)
@@ -80,6 +82,13 @@ FAULTS = {
     "chip1_ab_swap": lambda f: setattr(f.chips[1], "ab_swap", True),
     "mosi_corrupt": lambda f: [setattr(c, "mosi_xor", 0x0001) for c in f.chips],
     "mosi_inverted": lambda f: [setattr(c, "mosi_invert", True) for c in f.chips],
+    # MOSI open before the pair splits: every command arrives as CONVERT(0), answered
+    # by an ADC nobody configured. The first real headstage run looked like this.
+    "mosi_open": lambda f: [(setattr(c, "mosi_stuck", 0x0000), setattr(c, "adc_frozen", 0x0020))
+                            for c in f.chips],
+    "mosi_stuck_high": lambda f: [setattr(c, "mosi_stuck", 0xFFFF) for c in f.chips],
+    "chip1_mosi_open": lambda f: (setattr(f.chips[1], "mosi_stuck", 0x0000),
+                                  setattr(f.chips[1], "adc_frozen", 0x0020)),
     "chip1_dead_b": lambda f: setattr(f.chips[1], "dead_module", "B"),
     "chip1_dead": lambda f: setattr(f.chips[1], "dead_module", "AB"),
     "garbled": lambda f: setattr(f, "garbled", True),
@@ -142,6 +151,8 @@ class ChipModel:
         return v & 0xFFFF if self.twos_comp else (v + 0x8000) & 0xFFFF
 
     def _amp(self, module: str, c: int) -> int:
+        if self.f.adc_frozen is not None:
+            return self.f.adc_frozen
         powered = self.ram[(14 if module == "A" else 18) + c // 8] >> (c % 8) & 1
         if not powered or module in self.f.dead_module:
             return self._encode(0)        # an unpowered or dead amplifier: flat
@@ -149,6 +160,8 @@ class ChipModel:
 
     def execute(self, cmd: int) -> tuple[int, int]:
         """What the chip will answer for `cmd`, as received over MOSI."""
+        if self.f.mosi_stuck is not None:
+            cmd = self.f.mosi_stuck
         if self.f.mosi_invert:
             cmd = ~cmd & 0xFFFF
         cmd ^= self.f.mosi_xor

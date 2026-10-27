@@ -26,12 +26,30 @@ pins the single-board bench used.
 | JA3 | M14 | `mosi` | out | MOSI, both chips |
 | JA4 | N14 | `miso0` | in | MISO of chip 0 -> channels 0–63 |
 | JA7 | M16 | `miso1` | in | MISO of chip 1 -> channels 64–127 |
-| JA5 or JA11 | | GND | | GND (required) |
+| JA5 **and** JA11 | | GND | | **two** GND wires to two of the adapter's GND pins (required; see below) |
 | JA6 | | 3V3 | | converter board supply |
 
 The ESP stays on Pmod JC exactly as before (JC1 -> GPIO10, JC2 -> GPIO12,
 JC3 -> GPIO11, JC4 -> GPIO13, JC7 -> GPIO14, JC8 -> GPIO9, JC9 <- GPIO21,
 JC5 -> GND). It can be left unplugged until step 4.
+
+**Ground with more than one wire.** On the first real bench, one GND jumper
+between the Arty and the adapter was enough for SCLK and CS to work and for
+CS, SCLK and MOSI to look clean on a scope at the headstage, yet the chips
+never executed a command: the adapter's ground bounced with every SCLK edge
+and its 3.3 V inputs misread the command bits. A second and third GND wire
+fixed it outright. Bring-up reports this case as `MOSI_IGNORED`.
+
+The converter used there is Intan's LVDS adapter board (C3490). Use its **RHD**
+half (the RHS half is electrically separate, grounds included). Its RHD header:
+
+```
+back row:   VDD(+3.3V)  MOSI  MISO1  MISO2  GND
+front row:  GND         CS    SCLK   GND    GND
+```
+
+MOSI sits behind CS, not beside SCLK (that pin is GND). The adapter terminates
+MISO itself; CS, SCLK and MOSI are terminated on the headstage.
 
 The MISO inputs have the FPGA's weak pull-down on, so a MISO wire that is off
 reads **stuck low**. A chip that is not driving its MISO pair usually reads
@@ -104,12 +122,14 @@ Read top to bottom; the first row that matches is where to look.
 | S2: a MISO **stuck low** | that MISO wire, the converter's power or ground, or its single-ended driver |
 | S2: a MISO **stuck high** | that chip is not driving: chip power, that MISO LVDS pair, or CS/SCLK not reaching the chip |
 | S2: both stuck high | the shared CS/SCLK/MOSI path, or headstage power |
+| S3: `MOSI_IGNORED` (same reply to every command) | **ground first**: more GND wires between the Arty and the converter; then the MOSI path |
 | S3: bit-inverted ROM words | an LVDS pair's + and − swapped on the converter |
 | S3: ROM right but shifted / no phase window at 24 MHz, window at slower SPI_DIV | delay beyond the capture window or marginal edges: cable length, converter speed; keep the slower `SPI_DIV` |
 | S3: one chip only | the other chip's own MISO pair, power, or connector; the shared lines are fine |
 | S4: echoes wrong, ROM fine | MOSI path (MISO is proven by S3) |
 | S6: one module or chip all flat | that chip's amplifiers are powered down, or its reference/ground |
 | S7: link errors climb slowly | marginal phase: re-run S3 and look at window width; try `SPI_DIV` 1 |
+| S7: `FRAMES 0` but OVERRUNS ≈ sweeps / 5 | not a fault: no ESP is draining the 4-slot FIFO, so every datagram is dropped |
 | S7 clean, viewer `--udp` empty | ESP or Wi-Fi: rerun the single-board bench's step 3 (`MODE` bit2 internal pattern) |
 
 ## 6. Doing it by hand

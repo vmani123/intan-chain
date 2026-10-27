@@ -157,6 +157,19 @@ CAUSES = {
         "READ commands as sent, or MISO is too noisy to read",
         "the MOSI pair (an inverted MOSI turns READ into CONVERT); the SCLK pair; then "
         "--spi-div 7"),
+    "MOSI_IGNORED": (
+        "{who} clock data out on SCLK and react to CS, but answer READ(40), READ(62) and "
+        "CONVERT(0) with the same waveform: no command reaches the chip intact. On the first "
+        "real bench the cause was a single ground wire between the FPGA and the LVDS "
+        "converter: its ground bounced with every SCLK edge and its 3.3 V inputs misread the "
+        "commands, while CS, SCLK and MOSI all looked clean on a scope at the headstage",
+        "ground first: two or more GND wires from the FPGA to the converter's GND pins; then "
+        "JA3 to the converter's MOSI input, the converter's MOSI driver channel, and the MOSI "
+        "pair to the headstage at both ends{shared}"),
+    "MOSI_INVERTED": (
+        "{who} answer CONVERT(0) with the chip ID, as if it were READ(63): every command "
+        "arrives bit-inverted, so the MOSI pair's + and - are swapped",
+        "swap MOSI+ and MOSI- at the converter output or the headstage connector{shared}"),
     "CHIP_NOT_ANSWERING": (
         "chip {other} answers and chip {c} does not, so the shared CS/SCLK/MOSI lines work",
         "chip {c}'s own: power, the MISO{c} pair, and its connector pins"),
@@ -637,12 +650,16 @@ class Bringup:
         for lane in range(D.N_LANES):
             self.lane_ok[lane] = phase is not None and phase in eye.passing(lane)
 
+        # A chip with no lane reading its ROM: does its answer follow the command
+        # at all? That splits "MOSI never arrives" from every MISO-side cause.
+        ignoring = self._command_response(st, attempts)
+
         # Every lane that does not read its ROM at that phase gets a cause.
         swapped = D.eye_scan(res, expected, swap=True)
         inverted = D.eye_scan(res, expected, invert=True)
         swap_chips = swapped_chips(swapped, self.lane_ok)
         for lane in range(D.N_LANES):
-            if self.lane_ok[lane]:
+            if self.lane_ok[lane] or D.chip_of(lane) in ignoring:
                 continue
             if D.chip_of(lane) in swap_chips:
                 c = D.chip_of(lane)
@@ -737,6 +754,44 @@ class Bringup:
                       + f", {len(ok)}/4 lanes read their ROM")
         if not ok:
             st.hard = True
+
+    def _command_response(self, st: Stage, attempts) -> set:
+        """Chips (live MISO, no lane passing at any SPI_DIV) that ignore commands."""
+        mute = [c for c in (0, 1) if self.line_ok[c]
+                and not any(a["eye"].passing(l) for a in attempts
+                            for l in self._lanes_of([c]))]
+        if not mute:
+            return set()
+        resp = D.command_response(self.diag, mute)
+        st.data["command_response"] = {f"chip{c}": r.as_dict() for c, r in resp.items()}
+        bad = {}
+        for c, r in resp.items():
+            if r.mosi_inverted:
+                bad[c] = "MOSI_INVERTED"
+            elif r.ignores_commands:
+                bad[c] = "MOSI_IGNORED"
+            elif r.follows_commands:
+                st.checked.append(f"chip {c}'s answer changes with the command: MOSI reaches it")
+            else:
+                st.add("INFO", "INFO", f"chip{c}",
+                       f"identical READs agree {r.same_read:.0%} of the time, different "
+                       f"ones {r.diff_read:.0%}: a noisy MISO, or every command arriving "
+                       f"as a CONVERT")
+        what = {"MOSI_IGNORED": "same waveform for READ(40), READ(62) and CONVERT(0)",
+                "MOSI_INVERTED": "CONVERT(0) answered with the chip ID, 4"}
+        for cat in sorted(set(bad.values())):
+            chips = sorted(c for c, v in bad.items() if v == cat)
+            if chips == [0, 1]:
+                st.add("FAIL", cat, "both chips", f"{what[cat]}, on both chips",
+                       who="both chips", shared=" (shared by both chips, so the fault is "
+                       "before the pair splits)")
+            else:
+                c = chips[0]
+                st.add("FAIL", cat, f"chip{c}", what[cat], who=f"chip {c}",
+                       shared=f"; chip {1 - c} receives commands, so look at chip {c}'s "
+                       "branch of the MOSI pair")
+        ignoring = set(bad)
+        return ignoring
 
     def _chip_level(self, st: Stage, eye: D.Eye) -> None:
         dead = [c for c in (0, 1) if not self.lane_ok[2 * c] and not self.lane_ok[2 * c + 1]]
@@ -945,8 +1000,16 @@ class Bringup:
                 st.add("FAIL", "LINK_ERRORS_INTERMITTENT", name,
                        f"{n} errors in {link.checks} checks", lane=name, n=n,
                        m=link.checks, last=link.last[lane])
-        if cnt["FRAMES"] == 0:
+        # FRAMES counts only frames that found a datagram slot. With no ESP the
+        # 4-slot FIFO stays full (and it survives a stop and a clear), so every
+        # datagram is dropped and counted in OVERRUNS instead: built frames are
+        # FRAMES plus FRAMES_PER_DGRAM per overrun.
+        built = cnt["FRAMES"] + C.FRAMES_PER_DGRAM * cnt["OVERRUNS"]
+        if built == 0:
             st.add("FAIL", "NO_FRAMES", "board", f"FRAMES 0 after {link.checks} sweeps")
+        elif cnt["FRAMES"] == 0:
+            st.checked.append(f"frames built: {built} (all dropped: no ESP draining the "
+                              f"FIFO, OVERRUNS {cnt['OVERRUNS']})")
         else:
             st.checked.append(f"FRAMES {cnt['FRAMES']}")
         want_dgrams = cnt["FRAMES"] // C.FRAMES_PER_DGRAM

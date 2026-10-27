@@ -426,6 +426,108 @@ def chip_taps(results, chip: int) -> list[int]:
 
 
 # ---------------------------------------------------------------------------
+# Does the answer depend on the command?
+# ---------------------------------------------------------------------------
+# READ(40) answers 'I' (0x49) and READ(62) answers 64 (0x40): four bits apart
+# across the two modules, so their MISO waveforms differ in at least eight taps
+# whatever the phase. Comparing raw waveforms therefore needs no working phase,
+# which is what makes it useful exactly when nothing decodes. A chip that clocks
+# out the same waveform for both is not receiving the commands: SCLK and CS
+# reach it (it shifts data out on SCLK edges), MOSI does not.
+#
+# All probes go in ONE list, interleaved in blocks of three. A chip that is not
+# receiving commands can still change its answer over time (an unconfigured
+# ADC drifting, or flipping between two codes); probes in separate lists would
+# read that drift as the answer following the command. Within one list the
+# question is whether equal commands agree more often than different ones.
+#
+# CONVERT(0) is the third probe because it is 0x0000: a MOSI pair with + and -
+# swapped delivers it as 0xFFFF, which is READ(63), so the chip answers its chip
+# ID (4) -- a clean, recognisable word -- while the two READs both arrive as
+# CONVERTs and look alike. That separates "inverted" from "stuck".
+PROBE_COMMANDS = (R.read(40), R.read(62), R.convert(0))
+PROBE_BLOCK = 3        # each probe sent this many times running, the pattern twice
+SAME_TAPS = 3          # waveforms this close are one answer seen with edge jitter
+# MISO holds the previous answer's last bit until CS falls and the chip drives
+# the new one, so with up to PHASE_MAX taps of delay the head of a window can
+# still belong to the cycle before. Compare only what follows it.
+COMPARE_MASK = TAPS_MASK & ~((1 << (C.PHASE_MAX + 1)) - 1)
+
+
+def probe_commands() -> list[int]:
+    return [cmd for _ in range(2) for cmd in PROBE_COMMANDS
+            for _ in range(PROBE_BLOCK)] + R.FLUSHERS
+
+
+@dataclass
+class Response:
+    """How often one chip's raw MISO answers agree, by kind of command pair."""
+    chip: int
+    same_read: float      # pairs of the SAME read command that got one waveform
+    diff_read: float      # READ(40)-vs-READ(62) pairs that got one waveform
+    convert_read: float   # CONVERT(0)-vs-READ pairs that got one waveform
+    convert_is_id: bool   # most CONVERT(0) answers decode as chip ID 4 at some phase
+
+    @property
+    def mosi_inverted(self) -> bool:
+        # The chip ID for CONVERT(0) only, not for everything: a MOSI stuck high
+        # turns every command into READ(63), and that is "ignores", not "inverted".
+        return self.convert_is_id and self.convert_read <= 0.2
+
+    @property
+    def follows_commands(self) -> bool:
+        return self.same_read >= 0.8 and self.diff_read <= 0.2 and not self.mosi_inverted
+
+    @property
+    def ignores_commands(self) -> bool:
+        # Different commands agree about as often as equal ones, and not never:
+        # the command explains nothing about the answer.
+        return (not self.mosi_inverted and self.diff_read >= 0.3
+                and self.same_read - self.diff_read <= 0.2)
+
+    def verdict(self) -> str:
+        if self.mosi_inverted:
+            return "commands arrive inverted"
+        if self.follows_commands:
+            return "follows commands"
+        return "ignores commands" if self.ignores_commands else "unsteady"
+
+    def as_dict(self) -> dict:
+        return {"chip": self.chip, "same_read": round(self.same_read, 3),
+                "diff_read": round(self.diff_read, 3),
+                "convert_read": round(self.convert_read, 3),
+                "convert_is_id": self.convert_is_id, "verdict": self.verdict()}
+
+
+def _distance(a: int, b: int) -> int:
+    return bin((a ^ b) & COMPARE_MASK).count("1")
+
+
+def _agree(xs: list[int], ys: list[int] = None) -> float:
+    """Share of pairs within SAME_TAPS: all pairs inside xs, or every x against every y."""
+    if ys is None:
+        pairs = [(a, b) for i, a in enumerate(xs) for b in xs[i + 1:]]
+    else:
+        pairs = [(a, b) for a in xs for b in ys]
+    return sum(_distance(a, b) <= SAME_TAPS for a, b in pairs) / len(pairs) if pairs else 0.0
+
+
+def command_response(diag: "Diag", chips=(0, 1)) -> dict[int, Response]:
+    """Play the interleaved probe list once and ask whether answers follow commands."""
+    res = [r for r in diag.run(probe_commands(), raw=True).results() if r is not None]
+    r40, r62, cv = PROBE_COMMANDS
+    chip_id = (R.CHIP_ID_RHD2164, R.CHIP_ID_RHD2164)
+    out = {}
+    for c in chips:
+        by = {cmd: [r.taps[c] for r in res if r.command == cmd] for cmd in PROBE_COMMANDS}
+        same = (_agree(by[r40]) + _agree(by[r62])) / 2
+        ids = sum(any(R.decode_taps(t, p) == chip_id for p in PHASES) for t in by[cv])
+        out[c] = Response(c, same, _agree(by[r40], by[r62]),
+                          _agree(by[cv], by[r40] + by[r62]), ids * 2 > len(by[cv]))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # FPGA decode against host decode
 # ---------------------------------------------------------------------------
 

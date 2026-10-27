@@ -249,7 +249,7 @@ def test_s3_wrong_part():
 
 def test_s3_inverted_mosi_leaves_no_rom_and_stops():
     bu, _ = run("mosi_inverted")
-    assert cats(bu, "S3") == {"ROM_GARBLED"} and st(bu, "S3").hard
+    assert cats(bu, "S3") == {"MOSI_INVERTED"} and st(bu, "S3").hard
     assert "MOSI" in st(bu, "S3").findings[0].check
 
 
@@ -430,3 +430,40 @@ def test_helpers():
     d = B._echo_detail({0: 0xFFDF, 1: 0xFF43}, [0xDE, 0x42] + [0] * 20)
     assert "xor 0x01" in d
     assert "not WRITE echoes" in B._echo_detail({0: 0x0000}, [0xDE] + [0] * 21)
+
+
+# --- MOSI that never arrives: the first real headstage run ------------------
+
+def test_mosi_open_is_named_as_mosi_not_as_garbled_rom():
+    # Every command arrives as CONVERT(0) and an unconfigured ADC answers the
+    # same code: MISO clocks, CS and SCLK work, the ROM never reads.
+    bu, _ = run("mosi_open")
+    assert cats(bu, "S2") <= {"INFO"}
+    assert cats(bu, "S3") == {"MOSI_IGNORED"} and st(bu, "S3").hard
+    f = next(f for f in st(bu, "S3").findings if f.category == "MOSI_IGNORED")
+    assert f.scope == "both chips" and "JA3" in f.check
+
+
+def test_mosi_stuck_high_is_ignored_not_inverted():
+    # Every command is READ(63), so CONVERT(0) answers the chip ID like the rest.
+    bu, _ = run("mosi_stuck_high")
+    assert cats(bu, "S3") == {"MOSI_IGNORED"}
+
+
+def test_one_chip_mosi_open_names_that_chip_only():
+    bu, _ = run("chip1_mosi_open")
+    s3 = st(bu, "S3")
+    assert {(f.category, f.scope) for f in s3.findings if f.status == "FAIL"} == {
+        ("MOSI_IGNORED", "chip1"), ("CHIP_NOT_ANSWERING", "chip1")}
+    assert st(bu, "S4").status == "PASS"   # chip 0 still configures
+
+
+def test_command_response_verdicts():
+    from chain import diag as D
+    for fault, want in (("none", "follows commands"), ("mosi_open", "ignores commands"),
+                        ("mosi_stuck_high", "ignores commands"),
+                        ("mosi_inverted", "commands arrive inverted")):
+        ctrl = Ctrl(ser=FB.FakeBoard(FB.make_faults(fault)))
+        ctrl.write("PHASE_SELECT", 5)
+        resp = D.command_response(D.Diag(ctrl))
+        assert {r.verdict() for r in resp.values()} == {want}, fault
