@@ -47,13 +47,22 @@ def table(results: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def is_cell(r) -> bool:
+    """A sweep cell has a throughput block or says why not; bringup_* and tapcheck_*
+    reports share docs/results/ but are not cells of this table."""
+    return isinstance(r, dict) and ("throughput" in r or "error" in r)
+
+
 def load(d: pathlib.Path) -> list[dict]:
     out = []
     for path in sorted(d.glob("*.json")):
         try:
-            out.append(json.loads(path.read_text()))
+            r = json.loads(path.read_text())
         except (OSError, ValueError) as exc:
             print(f"skipping {path.name}: {exc}")
+            continue
+        if is_cell(r):
+            out.append(r)
     # Sort by the two knobs, so a phase scan reads in phase order.
     return sorted(out, key=lambda r: (r.get("rate_hz", 0), r.get("phase") is not None,
                                       r.get("phase") or 0, r.get("timestamp", "")))

@@ -29,7 +29,7 @@ by stage, naming the wire or chip at fault when a stage fails.
 make check
 ```
 
-That is the contract check, the host Python tests, and seven FPGA testbenches
+That is the contract check, the host Python tests, and nine FPGA testbenches
 under Icarus Verilog. It needs `iverilog`, `python3` and `pytest`, and nothing
 else. On a Mac: `brew install icarus-verilog`.
 
@@ -37,7 +37,7 @@ else. On a Mac: `brew install icarus-verilog`.
 
 | Part | Status |
 |---|---|
-| `host/` Python: pattern, framing, metrics, control, sweep, emulator golden | 177 pytest tests pass |
+| `host/` Python: pattern, framing, metrics, control, sweep, emulator golden, RHX reader, tap check | 265 pytest tests; 262 pass everywhere, 3 compare against real Intan files when `INTAN_RHX_SAMPLES` points at them |
 | `host/chain/bringup.py`, `diag.py`, `rhd2164.py`, `viewer.py` | staged real-chip bring-up and the 128-channel viewer, against `fakeboard.py` (two modelled RHD2164s, ~25 injectable faults); not yet run on hardware |
 | `fpga/boards/headstage_arty_s7_25_top.sv` + `.xdc` | board simulated with modelled chips behind a converter and the on-die loopback (24 checks); **not yet synthesised** |
 | `fpga/rtl/gen/pattern_gen.sv` | matches the host's pattern bit for bit |
@@ -46,6 +46,9 @@ else. On a Mac: `brew install icarus-verilog`.
 | `fpga/rtl/rx/frame_builder.sv`, `slot_fifo.sv` | 15 checks on layout, overrun and drop behaviour |
 | `fpga/rtl/rx/qspi_master.sv` | speaks the ESP32-S3 slave-HD protocol; checked against `fpga/sim/qspi_hd_monitor.sv`, a model of the slave built from the ESP-IDF source |
 | `fpga/rtl/rx/rx_top.sv` | 46 checks: both sources, QSPI decoded the way the ESP latches it, backpressure, counters |
+| `fpga/rtl/rx/spi_tap.sv` | passive listener for the Intan-controller check (CONTRACTS.md section 7): 43 checks against a Rhythm-timed master and the emulator RTL at 2 and 5 kS/s, framing faults, known answers, `TAP_DELAY` window |
+| `fpga/boards/tap_arty_s7_25_top.sv` + `.xdc` | tap build, LVDS inputs on JA/JB; board simulated with the loopback self-test end to end over QSPI (32 checks); **not yet synthesised** |
+| `host/chain/rhx.py`, `tapcheck.py`, `tapcompare.py` | RHX reader matches Intan's own loader on real Traditional (v1.5, v3.3) and per-signal-type (v3.3) files; `tapcheck compare` checks every sample, tested on synthetic sessions; see `docs/intan-tap-check.md` |
 | `fpga/boards/chain_arty_s7_25_top.sv` + `.xdc` | the whole board simulated (14 checks, jumpers modelled); synthesised (`QSPI_DIV=6`, WNS +0.497 ns) and **run on hardware**: emulator -> jumpers -> receiver -> QSPI -> ESP -> Wi-Fi -> Mac bit-exact at 2, 4 and 8 kS/s |
 | `fpga/boards/rx_arty_s7_top.sv` + `rx_boolean.xdc` | synthesised and smoke-tested on a Boolean (UART, ID, internal pattern), before the QSPI protocol fix |
 | `esp/` firmware | runs on an ESP32-S3 DevKitC-1 clone: synthetic source to the Mac, and the QSPI receiver (through the GPIO matrix, see `esp/README.md`) |
@@ -68,9 +71,12 @@ fpga/rtl/rx/          spi_master          RHD2164 sequencer + 4x oversample capt
                       qspi_master         quad-SPI egress, ready-gated, patches t_tx
                       uart_rx/tx, ctrl_regs
                       rx_top              the receiver, board-independent
+                      spi_tap             passive listener on another master's bus (tap build)
 fpga/boards/          chain_arty_s7_25_top.sv + .xdc   emulator + receiver, one Arty S7-25
                       rx_arty_s7_top.sv + rx_*.xdc     receiver alone (Arty S7-50, Boolean)
                       emu_arty_s7_25.xdc               emulator alone (rhd2164_top_se)
+                      headstage_arty_s7_25_top.sv + .xdc  receiver -> real RHD2164s via the LVDS converter
+                      tap_arty_s7_25_top.sv + .xdc     receiver listening to an Intan controller (LVDS tap)
 fpga/sim/             testbenches, run_sim.sh, golden vectors
                       qspi_hd_monitor     the ESP32-S3 slave-HD receiver, as a model
                       unisim_stubs        IBUF/BUFG/MMCM stand-ins so board tops simulate
@@ -78,7 +84,8 @@ fpga/vivado/          build.tcl, program.tcl (non-project batch flow; `make bit-
 fpga/upstream/        vendored RHD2164 emulator RTL + memories (stimulus; never edited)
 
 esp/                  ESP-IDF project: dumb DMA-to-socket relay
-host/chain/           pattern, frame, metrics, ctrl, receiver, sweep, report
+host/chain/           pattern, frame, metrics, ctrl, receiver, sweep, report,
+                      bringup, viewer, rhx, tapcheck (+ taprec, tapcompare)
 docs/results/         one JSON per measurement run, committed
 ```
 

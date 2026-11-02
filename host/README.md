@@ -1,7 +1,8 @@
 # host
 
 PC end of the chain: receive the UDP stream, drive the FPGA over UART, and
-score throughput, loss, accuracy and latency. Standard library plus pyserial.
+score throughput, loss, accuracy and latency. Standard library plus pyserial;
+numpy only for reading Intan RHX files and the tap check's comparison.
 
     pip install -r requirements.txt
 
@@ -22,6 +23,10 @@ score throughput, loss, accuracy and latency. Standard library plus pyserial.
 | `chain/fakeboard.py` | The headstage FPGA build plus two RHD2164 models and their MISO wires, with faults. |
 | `chain/bringup.py` | Staged bring-up of real RHD2164s with a cause and a check for every failure. |
 | `chain/viewer.py` | Live 128-channel view (UDP or UART), or headless per-channel statistics. |
+| `chain/tapcheck.py` | The tap check CLI: `selftest`, `status`, `delay-sweep`, `record`, `compare` (CONTRACTS.md section 7). |
+| `chain/taprec.py` | The tap recording file: every datagram as received, with host time; parsed only afterwards. |
+| `chain/tapcompare.py` | Tap recording vs RHX recording: alignment, number format, channel map, every sample (numpy). |
+| `chain/rhx.py` | Intan RHX files (Traditional `.rhd`, One File Per Signal Type folder) as raw ADC codes; header as Intan's loader reads it (numpy). |
 
 ## Running
 
@@ -55,7 +60,11 @@ Results land one JSON file per cell in `../docs/results/`.
 
     python3 -m pytest host/tests -q     # from the repo root
 
-No hardware, no network beyond loopback.
+No hardware, no network beyond loopback. The RHX reader and `tapcheck
+compare` tests need numpy and skip without it. Three more check `chain.rhx`
+against real Intan files and skip unless `INTAN_RHX_SAMPLES` points at a folder
+of them (`tests/test_rhx.py` says which files, from the NeuralEnsemble GIN
+test-data repository).
 
 ## Reading the numbers
 
@@ -154,3 +163,25 @@ The status line shows frame rate, seq gaps and frames lost, malformed
 datagrams, and, with `--serial`, LINK_ERR per lane. `--uart` needs no ESP but
 runs at about one snapshot per second: it shows which channels are alive and
 how active, not EMG waveforms.
+
+### Tap check against Intan's RHD recording controller
+
+The controller drives the headstage; a tap build of the FPGA only listens to
+the same SPI wires and sends what it hears through the chain, and `compare`
+checks every sample against RHX's own recording. Wiring, RHX settings and the
+whole procedure: [../docs/intan-tap-check.md](../docs/intan-tap-check.md).
+
+    python3 -m chain.tapcheck selftest    --serial PORT     # tap path, no Intan hardware
+    python3 -m chain.tapcheck status      --serial PORT     # RHX running: is every pair heard?
+    python3 -m chain.tapcheck delay-sweep --serial PORT --apply
+    python3 -m chain.tapcheck record      --serial PORT     # Ctrl-C after RHX stops recording
+    python3 -m chain.tapcheck compare ~/intan-tap-recordings/tap_<time>.chaintap RHX_FOLDER_OR_RHD
+    python3 -m chain.tapcheck status --fake tap_cs_swapped  # no hardware: a diagnosis
+
+`status`, `delay-sweep` and `selftest` accept `--fake [FAULT ...]` like
+bring-up (tap faults: `tap_idle`, `tap_cs_swapped`, `tap_sclk_swapped`,
+`tap_sclk_open`, `tap_mosi_open`, `tap_miso1_swapped`, `tap_miso2_open`,
+`tap_no_checks`, `tap_framing`, `no_tap`). Recordings go to
+`~/intan-tap-recordings/` (about 33 MB a minute at 2 kS/s); `selftest`,
+`delay-sweep` and `compare` reports to `../docs/results/tapcheck_*.json`.
+Exit status 0 nothing failed, 1 something missing or wrong, 2 could not run.

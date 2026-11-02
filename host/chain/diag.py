@@ -630,10 +630,12 @@ class Caps:
     emulator: bool
     taps: int
     raw: int
+    tap: bool = False           # bit9: the passive tap (MODE bit4) is built in
 
 
 def decode_caps(v: int) -> Caps:
-    return Caps(qspi_div=v & 0xFF, emulator=bool(v & 0x100), taps=(v >> 16) & 0xFF, raw=v)
+    return Caps(qspi_div=v & 0xFF, emulator=bool(v & 0x100), taps=(v >> 16) & 0xFF, raw=v,
+                tap=bool(v & 0x200))
 
 
 # ---------------------------------------------------------------------------

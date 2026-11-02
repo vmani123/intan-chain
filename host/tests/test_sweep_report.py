@@ -89,3 +89,17 @@ def test_phase_scan_runs_the_emulator_not_the_internal_pattern(tmp_path, monkeyp
     assert modes and all(m & 0x4 == 0 for m in modes)
     r = json.loads(sorted(tmp_path.glob("phase*.json"))[0].read_text())
     assert r["source"] == "emulator"
+
+
+def test_report_skips_results_that_are_not_sweep_cells(tmp_path, capsys):
+    # bringup_*.json and tapcheck_*.json share docs/results/ with the sweep cells;
+    # the table must not trip over them (it raised KeyError on a bring-up report).
+    assert sweep.main(["--dry-run", "--rates", "2000", "--seconds", "0.2",
+                       "--out", str(tmp_path)]) == 0
+    (tmp_path / "bringup_20261027-011659.json").write_text(json.dumps(
+        {"tool": "bringup", "result": "PASS", "stages": []}))
+    (tmp_path / "tapcheck_compare_20261102-150000.json").write_text(json.dumps(
+        {"tool": "tapcheck", "command": "compare", "result": "PASS"}))
+    assert len(report.load(tmp_path)) == 1
+    assert report.main(["--dir", str(tmp_path)]) == 0
+    assert "(1 cells" in capsys.readouterr().out

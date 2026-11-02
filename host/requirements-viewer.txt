@@ -1,5 +1,5 @@
-# chain.viewer: the core requirements plus drawing. Bring-up, sweeps and the
-# tests need only requirements.txt; matplotlib and numpy are imported lazily.
+# chain.viewer: the core requirements plus drawing. Bring-up, sweeps, the tap
+# check and the tests need only requirements.txt; matplotlib is imported lazily.
 # On the bench (2026-10-27): Python 3.14.0, matplotlib 3.10.7, numpy 2.3.4,
 # pyserial 3.5.
 -r requirements.txt

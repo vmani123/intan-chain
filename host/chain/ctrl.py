@@ -12,6 +12,11 @@ READ_ONLY = 0x10  # addresses 0x10..0x1f are counters, status and the ID
 WRITABLE = frozenset(a for a in C.REG.values() if a < READ_ONLY) | frozenset(
     C.REG[n] for n in ("DIAG_PTR", "DIAG_CMD", "DIAG_LEN", "DIAG_CTRL") if n in C.REG)
 COUNTERS = ("FRAMES", "DGRAMS", "FIFO_HIGH", "OVERRUNS", "STALLS")
+# What clear_counters also zeroes in a tap build (section 4); TAP_SCLK_MIN goes
+# back to all ones ("none heard yet") rather than to zero.
+TAP_COUNTERS = ("TAP_CYCLES", "TAP_FRAMING", "TAP_SWEEPS", "TAP_PARTIAL", "TAP_CHECKS",
+                "TAP_ERR0", "TAP_ERR1")
+TAP_SCLK_NONE = 0xFFFFFFFF
 
 
 class CtrlError(RuntimeError):
@@ -129,6 +134,9 @@ class FakeSerial:
     def __init__(self):
         self.regs = {addr: 0 for addr in C.REG.values()}
         self.regs[C.REG["ID"]] = C.ID_EXPECTED
+        if "TAP_DELAY" in C.REG:
+            self.regs[C.REG["TAP_DELAY"]] = C.TAP_DELAY_RESET
+            self.regs[C.REG["TAP_SCLK_MIN"]] = TAP_SCLK_NONE
         self.log = []
         self.reply_override = None  # test hook: answer the next line with this instead
         self._out = b""
@@ -173,9 +181,15 @@ class FakeSerial:
                 if addr not in self.regs or addr not in WRITABLE:
                     return "err"  # counters and ID are read-only
                 if addr == C.REG["CTRL"] and val & 0x2:
-                    for name in COUNTERS:
-                        self.regs[C.REG[name]] = 0
+                    for name in COUNTERS + TAP_COUNTERS:
+                        if name in C.REG:
+                            self.regs[C.REG[name]] = 0
+                    if "TAP_SCLK_MIN" in C.REG:
+                        self.regs[C.REG["TAP_SCLK_MIN"]] = TAP_SCLK_NONE
+                        self.regs[C.REG["TAP_STAT"]] &= ~0x1F00   # the sticky "toggled" bits
                     val &= ~0x2  # self-clearing
+                if addr == C.REG.get("TAP_DELAY"):
+                    val = min(val, C.TAP_DELAY_MAX)               # larger writes saturate
                 self.regs[addr] = val
                 return "ok"
         except ValueError:

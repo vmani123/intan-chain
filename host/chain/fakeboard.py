@@ -20,6 +20,17 @@ wide; the bench's emulator window (5-6 at SPI_DIV 0) is D = 5.
 
 It is also what `python3 -m chain.bringup --fake` runs against, so every
 failure report can be seen without hardware.
+
+With `Faults.tap` set it is the tap build as well (CONTRACTS.md section 7):
+CAPS bit9, TAP_DELAY and the TAP_* counters, driven either by an external
+SPI master modelled by `TapBus` (the Intan controller, its five lines and
+their wiring faults, and the TAP_DELAY window that reads MISO cleanly) or, with
+MODE bit3 and bit4, by the receiver's own master sweeping the on-die emulator.
+As in spi_tap.sv, the decoder, framing, known-answer checks, TAP_SCLK_MIN and
+TAP_STAT listen whatever MODE says; only sweep assembly (TAP_SWEEPS,
+TAP_PARTIAL, frames) needs the tap selected and `run` set. The model is
+counter-level only: frame payloads for the tap are made by the tests that need
+them, so this file stays about the control link.
 """
 import math
 import random
@@ -54,6 +65,32 @@ class ChipFaults:
     calib_len: int = R.CALIBRATE_DUMMIES  # commands the calibration window consumes
 
 
+TAP_LINES = ("cs", "sclk", "mosi", "miso1", "miso2")   # TAP_STAT bit order: cs_n .. miso1
+
+
+@dataclass
+class TapBus:
+    """What the tap hears from an external master (the Intan controller under RHX).
+
+    lines: per cable signal, 'ok', 'open' (never toggles, reads 0) or
+    'swapped' (+ and - exchanged, so the FPGA sees it inverted). The effects
+    follow section 7: an inverted CS or a dead SCLK makes every cycle a framing
+    error; an inverted SCLK or MOSI garbles every command so no CONVERT is
+    recognised; an open MOSI reads every command as CONVERT(0), so every result
+    starts a sweep and every sweep is partial; an inverted or open MISO, or a
+    TAP_DELAY outside `window`, fails every known-answer check on that chip.
+    """
+    present: bool = True            # the master is clocking the bus (RHX running)
+    rate: float = 2000.0            # sweeps per second
+    sclk_half_fc: int = 34          # SCLK high/low time in fast clocks (1.4 MHz)
+    cycles_per_sweep: int = 35      # 32 CONVERT + 3 auxiliary commands
+    window: tuple = (3, 30)         # TAP_DELAY values that sample MISO cleanly
+    checks_a: int = 1               # known-answer results per sweep, module A lanes
+    checks_b: int = 0               # ... module B lanes (READ(59) only)
+    framing_every: int = 0          # one framing error (and partial sweep) per N sweeps
+    lines: dict = field(default_factory=lambda: {n: "ok" for n in TAP_LINES})
+
+
 @dataclass
 class Faults:
     chips: list = field(default_factory=lambda: [ChipFaults(), ChipFaults()])
@@ -69,6 +106,12 @@ class Faults:
     esp_present: bool = False    # an ESP drains the QSPI FIFO while streaming
     edge_fc: float = 0.0         # samples this close to a MISO transition read random
     emu_delay_fc: float = 3.0    # on-die emulator loop delay
+    tap: bool = False            # CAPS bit9: the passive tap is built in
+    bus: TapBus = field(default_factory=TapBus)   # what the tap hears in MODE bit4
+
+
+def _line(name, state):
+    return lambda f: (setattr(f, "tap", True), f.bus.lines.__setitem__(name, state))
 
 
 FAULTS = {
@@ -105,6 +148,19 @@ FAULTS = {
     "selftest_broken": lambda f: setattr(f, "selftest_broken", True),
     "flaky_link": lambda f: setattr(f.chips[0], "link_flaky", 0.01),
     "skewed_chips": lambda f: setattr(f.chips[1], "delay_fc", 8.0),
+    # The tap build (section 7); every tap fault implies the tap is present.
+    "tap": lambda f: setattr(f, "tap", True),
+    "no_tap": lambda f: setattr(f, "tap", False),
+    "tap_idle": lambda f: (setattr(f, "tap", True), setattr(f.bus, "present", False)),
+    "tap_cs_swapped": _line("cs", "swapped"),
+    "tap_sclk_swapped": _line("sclk", "swapped"),
+    "tap_sclk_open": _line("sclk", "open"),
+    "tap_mosi_open": _line("mosi", "open"),
+    "tap_miso2_open": _line("miso2", "open"),
+    "tap_miso1_swapped": _line("miso1", "swapped"),
+    "tap_no_checks": lambda f: (setattr(f, "tap", True), setattr(f.bus, "checks_a", 0),
+                                setattr(f.bus, "checks_b", 0)),
+    "tap_framing": lambda f: (setattr(f, "tap", True), setattr(f.bus, "framing_every", 100)),
 }
 
 
@@ -289,7 +345,13 @@ class FakeBoard:
         self.regs = {addr: 0 for addr in C.REG.values()}
         self.regs[C.REG["SAMPLE_PERIOD"]] = 48000
         self.regs[C.REG["ID"]] = self.f.board_id
-        self.regs[C.REG["CAPS"]] = (self.f.caps_taps << 16) | (0x100 if self.f.emulator else 0) | 3
+        self.regs[C.REG["CAPS"]] = ((self.f.caps_taps << 16) | (0x100 if self.f.emulator else 0)
+                                    | (0x200 if self.f.tap else 0) | 3)
+        self.regs[C.REG["TAP_DELAY"]] = C.TAP_DELAY_RESET
+        self.regs[C.REG["TAP_SCLK_MIN"]] = U32
+        self.tap_toggled = 0          # TAP_STAT [12:8], sticky until clear
+        self.tap_last = _clock_now(self.clock)   # external bus heard up to here
+        self.tap_carry = 0.0                     # fraction of a sweep not yet heard
         self.chips = [ChipModel(c, self.f.chips[c], signal) for c in (0, 1)]
         self.emu = [ChipModel(c, ChipFaults(), signal) for c in (0, 1)]
         self.wires = [Wire(self.f.chips[c], self.f.edge_fc, seed + c) for c in (0, 1)]
@@ -340,6 +402,7 @@ class FakeBoard:
     def _handle(self, line: str):
         self.log.append(line)
         self._tick_uart()
+        self._tap_listen()
         if self.f.silent:
             return None
         if self.f.garbled:
@@ -348,13 +411,14 @@ class FakeBoard:
         try:
             if len(parts) == 2 and parts[0] in ("R", "r") and len(parts[1]) == 2:
                 addr = int(parts[1], 16)
-                if addr not in self.regs:
-                    return "err"
+                if addr not in self.regs or (addr == C.REG["TAP_DELAY"] and not self.f.tap):
+                    return "err"            # TAP_DELAY exists only in a tap build (section 4)
                 return f"{addr:02x}={self._read(addr) & U32:08x}"
             if (len(parts) == 3 and parts[0] in ("W", "w") and len(parts[1]) == 2
                     and len(parts[2]) == 8):
                 addr, val = int(parts[1], 16), int(parts[2], 16)
-                if addr not in self.regs or addr not in WRITABLE:
+                if addr not in self.regs or addr not in WRITABLE or \
+                        (addr == C.REG["TAP_DELAY"] and not self.f.tap):
                     return "err"
                 self._write(addr, val)
                 return "ok"
@@ -376,6 +440,10 @@ class FakeBoard:
     @property
     def loopback(self) -> bool:
         return bool(self._reg("MODE") & 0x8) and self.f.emulator
+
+    @property
+    def tap_selected(self) -> bool:
+        return bool(self._reg("MODE") & 0x10) and self.f.tap
 
     def _read(self, addr: int) -> int:
         name = self._names[addr]
@@ -402,6 +470,11 @@ class FakeBoard:
             return v | (0x100 if self.loopback else 0)
         if name in ("MISO_EDGES0", "MISO_EDGES1"):
             return self.edges[int(name[-1])]
+        if name == "TAP_STAT":
+            if not self.f.tap:
+                return 0                                   # "reads 0 without a tap"
+            return (self._tap_levels() | (self.tap_toggled << 8)
+                    | (0x10000 if self.tap_selected and self.running else 0))
         return self.regs[addr]
 
     def _write(self, addr: int, val: int) -> None:
@@ -419,6 +492,12 @@ class FakeBoard:
                 self._finish_run()
         elif name in ("PHASE_SELECT", "SPI_DIV"):
             self._set(name, min(val, 15))
+        elif name == "TAP_DELAY":
+            self._set(name, min(val, C.TAP_DELAY_MAX))
+        elif name == "MODE":
+            if self.running:
+                self._advance()                            # account under the old mode
+            self._set(name, val)
         elif name == "DIAG_PTR":
             self._set(name, min(val, C.DIAG_DEPTH - 1))
         elif name == "DIAG_CMD":
@@ -439,6 +518,11 @@ class FakeBoard:
             self._set(n, 0)
         self.miso_seen = [[False, False], [False, False]]
         self.edges = [0, 0]
+        for n in ("TAP_CYCLES", "TAP_FRAMING", "TAP_SWEEPS", "TAP_PARTIAL", "TAP_CHECKS",
+                  "TAP_ERR0", "TAP_ERR1"):
+            self._set(n, 0)
+        self._set("TAP_SCLK_MIN", U32)
+        self.tap_toggled = 0
         if self.running:
             self.run_t0, self.swept = _clock_now(self.clock), 0
 
@@ -484,7 +568,11 @@ class FakeBoard:
 
     def _advance(self):
         """Account for the sweeps run since the last look, in bulk."""
-        if self.f.spi_dead or self.f.stream_dead or self.run_t0 is None:
+        if self.run_t0 is None:
+            return
+        if self.tap_selected and not self.loopback:
+            return                  # our master idles; _tap_listen hears the external one
+        if self.f.spi_dead or self.f.stream_dead:
             return
         period = max(self._reg("SAMPLE_PERIOD"), R.min_sample_period(self._reg("SPI_DIV")))
         elapsed = _clock_now(self.clock) - self.run_t0
@@ -508,6 +596,17 @@ class FakeBoard:
         self._set("LINK_CHECKS", self._reg("LINK_CHECKS") + n)
         # _sweep_once counted its own 35 cycles; the other n - 1 sweeps in bulk.
         self._set("SPI_CYCLES", self._reg("SPI_CYCLES") + (n - 1) * len(self.SWEEP))
+        if self.tap_selected:
+            # Self-test: the tap hears our own sweeps of the on-die emulator, whose
+            # three AUX results (READ 59, 40, 63) all have known answers.
+            spi_div = self._reg("SPI_DIV")
+            half = 2 * (spi_div + 1)
+            n = self._tap_account(n, len(self.SWEEP), half, (2, 1 + half), 3, 1,
+                                  {k: "ok" for k in TAP_LINES}, stream=True)
+        self._frames_out(n, elapsed)
+
+    def _frames_out(self, n: int, elapsed: float) -> None:
+        """n more frames built; what happens to them depends on whether an ESP drains QSPI."""
         frames = self._reg("FRAMES") + n
         self._set("FRAMES", frames)
         if self.f.esp_present:
@@ -537,3 +636,87 @@ class FakeBoard:
 
     def _finish_run(self):
         self.run_t0 = None
+
+    # --- the passive tap (section 7) ----------------------------------------
+    @property
+    def tap_internal(self) -> bool:
+        """MODE bit3 with bit4: the tap listens to our own master and the on-die emulator."""
+        return self.tap_selected and self.loopback
+
+    def _tap_listen(self):
+        """The external bus since the last look: heard whatever MODE says, framed if selected."""
+        now = _clock_now(self.clock)
+        dt, self.tap_last = now - self.tap_last, now
+        bus = self.f.bus
+        if not self.f.tap or self.tap_internal or not bus.present:
+            self.tap_carry = 0.0
+            return
+        self.tap_carry += dt * bus.rate
+        n = int(self.tap_carry)
+        if n <= 0:
+            return
+        self.tap_carry -= n
+        stream = self.tap_selected and self.running
+        frames = self._tap_account(n, bus.cycles_per_sweep, bus.sclk_half_fc, bus.window,
+                                   bus.checks_a, bus.checks_b, bus.lines, stream=stream)
+        if stream:
+            self._frames_out(frames, now - self.run_t0)
+
+    def _tap_account(self, n, cps, half, window, checks_a, checks_b, lines,
+                     stream: bool) -> int:
+        """n master sweeps heard by the tap; returns the frames they produce.
+
+        Cycles, framing, known answers, SCLK and toggles always count; sweeps
+        and partial sweeps only when `stream` (tap selected and run set).
+        """
+        cs, sclk, mosi = lines["cs"], lines["sclk"], lines["mosi"]
+        cycles = n * cps if cs != "open" else 0
+        if not cycles:
+            return 0
+        for bit, name in enumerate(TAP_LINES):
+            if lines[name] != "open":
+                self.tap_toggled |= 1 << bit
+        sweeps = partial = framing = 0
+        decoded = False
+        if cs == "swapped" or sclk == "open":
+            framing = cycles                      # no cycle shows 16 + 16 SCLK edges
+        elif sclk == "swapped" or mosi == "swapped":
+            pass                                  # commands garbled: no CONVERT recognised
+        elif mosi == "open":
+            sweeps = partial = cycles             # every command reads CONVERT(0)
+        else:
+            decoded = True
+            sweeps = n
+            if self.f.bus.framing_every and window == self.f.bus.window:
+                framing = partial = n // self.f.bus.framing_every
+        if sclk != "open":
+            self._set("TAP_SCLK_MIN", min(self._reg("TAP_SCLK_MIN"), half))
+        add = lambda name, k: self._set(name, self._reg(name) + k)
+        if not stream:
+            sweeps = partial = 0
+        add("TAP_CYCLES", cycles)
+        add("TAP_FRAMING", framing)
+        add("TAP_SWEEPS", sweeps)
+        add("TAP_PARTIAL", partial)
+        if decoded:
+            add("TAP_CHECKS", n * checks_a)
+            inside = window[0] <= self._reg("TAP_DELAY") <= window[1]
+            for chip, line in ((0, lines["miso1"]), (1, lines["miso2"])):
+                if inside and line == "ok":
+                    continue
+                reg = f"TAP_ERR{chip}"
+                lo, hi = self._reg(reg) & 0xFFFF, self._reg(reg) >> 16
+                lo, hi = min(0xFFFF, lo + n * checks_a), min(0xFFFF, hi + n * checks_b)
+                self._set(reg, lo | (hi << 16))
+        return sweeps
+
+    def _tap_levels(self) -> int:
+        """TAP_STAT [4:0]: idle levels (cs_n high, the rest low), as wired."""
+        lines = ({k: "ok" for k in TAP_LINES} if self.loopback else self.f.bus.lines)
+        v = 0
+        for bit, name in enumerate(TAP_LINES):
+            idle = 1 if name == "cs" else 0
+            state = lines[name]
+            lvl = 0 if state == "open" else (1 - idle if state == "swapped" else idle)
+            v |= lvl << bit
+        return v
