@@ -1,5 +1,5 @@
 # intan-chain -- everything runnable with no hardware is behind `make check`.
-.PHONY: all check contract check-contract vectors sim host-test lint clean help bit bit-headstage bit-chain bit-rx bit-rx-boolean bit-emu prog
+.PHONY: all check contract check-contract vectors sim host-test lint clean help bit bit-headstage bit-tap bit-chain bit-rx bit-rx-boolean bit-emu prog
 
 # Vivado must be on PATH (source <Vivado>/settings64.sh), or pass VIVADO=/path/to/vivado.
 VIVADO ?= vivado
@@ -18,6 +18,7 @@ help:
 	@echo "make sim            FPGA testbenches only (Icarus Verilog)"
 	@echo "make host-test      host Python tests only (pytest)"
 	@echo "make bit-headstage  receiver -> real RHD2164s on Pmod JA, Arty S7-25 -> fpga/bitstreams/headstage_arty_s7_25[_divN].bit"
+	@echo "make bit-tap        passive tap on an Intan SPI cable (LVDS on JA/JB), Arty S7-25 -> fpga/bitstreams/tap_arty_s7_25[_divN].bit"
 	@echo "make bit-chain      single-board bench, Arty S7-25 -> fpga/bitstreams/chain_arty_s7_25[_divN].bit"
 	@echo "                    QSPI_DIV=6 make bit-chain builds with an 8 MHz QSPI clock"
 	@echo "make bit            bench bitstreams (Vivado): receiver on Boolean + emulator on Arty S7-25"
@@ -53,6 +54,9 @@ bit: bit-rx-boolean bit-emu
 
 bit-headstage:
 	$(VIVADO_BATCH) -log ../headstage.log -tclargs headstage
+
+bit-tap:
+	$(VIVADO_BATCH) -log ../tap.log -tclargs tap
 
 bit-chain:
 	$(VIVADO_BATCH) -log ../chain.log -tclargs chain

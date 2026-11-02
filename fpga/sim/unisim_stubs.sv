@@ -1,5 +1,6 @@
 // ============================================================================
-// unisim_stubs.sv -- just enough of IBUF, BUFG and MMCME2_BASE for Icarus.
+// unisim_stubs.sv -- just enough of IBUF, IBUFDS, BUFG and MMCME2_BASE for
+// Icarus.
 // Simulation only; never read by Vivado, which has the real primitives.
 // ----------------------------------------------------------------------------
 // The board tops are the only files that instantiate vendor primitives. These
@@ -18,6 +19,18 @@
 
 module IBUF (input wire I, output wire O);
     assign O = I;
+endmodule
+
+// A differential receiver: + above - reads 1, below reads 0, and anything
+// else (both legs equal, or undriven) is x, so a pair a testbench forgot to
+// drive, or drove as two copies of one wire, cannot pass for a clean signal.
+module IBUFDS #(
+    parameter DIFF_TERM    = "FALSE",
+    parameter IBUF_LOW_PWR = "TRUE",
+    parameter IOSTANDARD   = "DEFAULT"
+) (input wire I, input wire IB, output wire O);
+    assign O = (I === 1'b1 && IB === 1'b0) ? 1'b1 :
+               (I === 1'b0 && IB === 1'b1) ? 1'b0 : 1'bx;
 endmodule
 
 module BUFG (input wire I, output wire O);

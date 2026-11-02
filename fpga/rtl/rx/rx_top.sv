@@ -38,6 +38,26 @@
 //   `mode_o` is MODE as written, so a board top can steer the SPI pins (bit3,
 //   loopback to an on-die emulator) without a second control path. HAS_EMU
 //   tells the host whether that loopback exists in this build.
+//
+// THE PASSIVE TAP (HAS_TAP, CONTRACTS.md section 7)
+//   spi_tap listens to someone else's SPI bus on the tap_* inputs and streams
+//   what it hears in the same valid / ch / value / sample_done form as the
+//   other two sources. MODE bit4 makes it the frame source, and then frames
+//   carry flags bit2 (TAP) and bit3 (TAP_PARTIAL), and t_cap is the tick at
+//   which the tap finished hearing the sweep rather than the end of the
+//   stream. With HAS_TAP = 0 nothing is instantiated, MODE bit4 does nothing
+//   and registers 30-38 read their idle values (0, TAP_SCLK_MIN ffffffff).
+//
+// THE SAMPLE TIMER IN TAP MODE
+//   The external master sets the tap's sample rate; the timer does not. It
+//   still runs, because spi_master still needs starts -- that is what sweeps
+//   the on-die emulator during the tap's loopback self-test -- but a start
+//   the engine refuses is not counted in OVERRUNS: nothing the host receives
+//   comes from spi_master in tap mode, so a missed start loses no frame.
+//   frame_builder's busy is not consulted either, for the same reason; the
+//   tap waits for it itself. In tap mode OVERRUNS therefore counts exactly
+//   the frames lost: datagrams dropped on a full FIFO (a gap in `seq`) and
+//   sweeps the tap could not frame at all (`tap_lost`; see spi_tap.sv).
 // ============================================================================
 
 `default_nettype none
@@ -51,7 +71,8 @@ module rx_top #(
     parameter int NSLOT            = 4,
     parameter int QSPI_DIV         = 2,
     parameter logic [7:0] QSPI_CMD = 8'h23,
-    parameter bit HAS_EMU          = 1'b0    // board top has an on-die emulator (MODE bit3)
+    parameter bit HAS_EMU          = 1'b0,   // board top has an on-die emulator (MODE bit3)
+    parameter bit HAS_TAP          = 1'b0    // passive tap on the tap_* inputs (MODE bit4)
 ) (
     input  wire        clk,            // 96 MHz, buffered by the board top
     input  wire        rst_n,
@@ -67,6 +88,13 @@ module rx_top #(
     input  wire        miso0,
     input  wire        miso1,
 
+    // Passive tap: an external master's bus, overheard (asynchronous; HAS_TAP)
+    input  wire        tap_cs_n,
+    input  wire        tap_sclk,
+    input  wire        tap_mosi,
+    input  wire        tap_miso0,
+    input  wire        tap_miso1,
+
     // QSPI egress to the ESP32-S3
     input  wire        esp_ready,
     output wire        qspi_cs_n,
@@ -76,7 +104,8 @@ module rx_top #(
 
     output wire [2:0]  led,
     output wire [31:0] mode_o,         // MODE register, for SPI routing in the board top
-    output wire        link_good       // last link check passed on all four lanes
+    output wire        link_good,      // last link check passed on all four lanes
+    output wire        tap_good        // tap hears clean cycles, no recent error
 );
 
     localparam int CHW         = $clog2(N_CH);
@@ -100,7 +129,7 @@ module rx_top #(
     // ---------------- control interface ----------------
     wire [7:0]  urx_data, utx_data;
     wire        urx_valid, utx_send, utx_ready;
-    wire [31:0] ctrl, sample_period, phase_select, mode, spi_div;
+    wire [31:0] ctrl, sample_period, phase_select, mode, spi_div, tap_delay;
     wire        clear_stb;
 
     wire [31:0] fb_frames, q_dgrams, q_stalls, fifo_high, fifo_overruns;
@@ -126,18 +155,23 @@ module rx_top #(
     wire        loopback = mode[3] && HAS_EMU;
 
     wire [31:0] miso_stat = {23'd0, loopback, 2'b00, miso_now, miso_seen};
-    wire [31:0] caps      = {8'd0, 8'(CAP_TAPS), 7'd0, HAS_EMU, 8'(QSPI_DIV)};
+    wire [31:0] caps      = {8'd0, 8'(CAP_TAPS), 6'd0, HAS_TAP, HAS_EMU, 8'(QSPI_DIV)};
+
+    // tap registers, driven below (idle values without a tap)
+    wire [31:0] tap_stat, tap_cycles, tap_framing, tap_sweeps, tap_partials;
+    wire [31:0] tap_checks, tap_err0, tap_err1, tap_sclk_min;
 
     uart_rx #(.CLK_HZ(CLK_HZ), .BAUD(BAUD)) u_urx (
         .clk(clk), .rst(rst), .rx(uart_rx_i),
         .data(urx_data), .valid(urx_valid));
 
-    ctrl_regs #(.CAP_TAPS(CAP_TAPS)) u_ctrl (
+    ctrl_regs #(.CAP_TAPS(CAP_TAPS), .HAS_TAP(HAS_TAP)) u_ctrl (
         .clk(clk), .rst(rst),
         .rx_data(urx_data), .rx_valid(urx_valid),
         .tx_data(utx_data), .tx_send(utx_send), .tx_ready(utx_ready),
         .ctrl(ctrl), .sample_period(sample_period),
         .phase_select(phase_select), .mode(mode), .spi_div(spi_div),
+        .tap_delay(tap_delay),
         .clear_counters_stb(clear_stb),
         .diag_ptr(diag_ptr), .diag_len(diag_len),
         .diag_cmd_we(diag_cmd_we), .diag_cmd_wdata(diag_cmd_wdata),
@@ -150,6 +184,9 @@ module rx_top #(
         .miso_stat(miso_stat),
         .miso_edges0(miso_edges0), .miso_edges1(miso_edges1),
         .caps(caps),
+        .tap_stat(tap_stat), .tap_cycles(tap_cycles), .tap_framing(tap_framing),
+        .tap_sweeps(tap_sweeps), .tap_partial(tap_partials), .tap_checks(tap_checks),
+        .tap_err0(tap_err0), .tap_err1(tap_err1), .tap_sclk_min(tap_sclk_min),
         .diag_status({diag_rejected, diag_done_f, sm_diag_busy}),
         .diag_cmd_rd(diag_cmd_rd),
         .diag_res0(diag_res_rd[31:0]), .diag_res1(diag_res_rd[63:32]),
@@ -161,7 +198,9 @@ module rx_top #(
 
     wire run       = ctrl[0];
     wire use_pat   = mode[2];
-    wire [7:0] flags_w = {6'd0, mode[1], mode[0]};
+    wire tap_sel   = mode[4] && HAS_TAP;     // frames come from the tap
+    wire tap_partial;
+    wire [7:0] flags_w = {4'd0, tap_sel && tap_partial, tap_sel, mode[1], mode[0]};
 
     assign mode_o = mode;
 
@@ -235,16 +274,67 @@ module rx_top #(
         .valid(pg_valid), .ch(pg_ch), .value(pg_value),
         .done(pg_done), .busy(pg_busy));
 
-    wire               src_valid = use_pat ? pg_valid : sm_valid;
-    wire [CHW-1:0]     src_ch    = use_pat ? pg_ch    : sm_ch;
-    wire signed [15:0] src_value = use_pat ? pg_value : sm_value;
-    wire               src_done  = use_pat ? pg_done  : sm_done;
-    wire               src_busy  = use_pat ? pg_busy  : sm_busy;
+    // ---------------- passive tap ----------------
+    wire               tap_valid, tap_done, tap_lost;
+    wire [6:0]         tap_ch;
+    wire [15:0]        tap_value;
+    wire [31:0]        tap_tcap;
+    wire               fb_busy;
+
+    generate
+        if (HAS_TAP) begin : g_tap
+            // synthesis translate_off
+            initial if (N_CH != 128)
+                $fatal(1, "rx_top: the tap assembles 2 chips x 64 channels, N_CH must be 128");
+            // synthesis translate_on
+
+            spi_tap u_tap (
+                .clk(clk), .rst_n(rst_n),
+                .en(tap_sel && run), .clear(clear_stb), .delay(tap_delay[5:0]),
+                .cs_n_i(tap_cs_n), .sclk_i(tap_sclk), .mosi_i(tap_mosi),
+                .miso0_i(tap_miso0), .miso1_i(tap_miso1),
+                .tick(tick), .fb_busy(fb_busy),
+                .valid(tap_valid), .ch(tap_ch), .value(tap_value),
+                .sample_done(tap_done), .partial(tap_partial), .t_cap(tap_tcap),
+                .lost(tap_lost),
+                .stat(tap_stat), .cycles(tap_cycles), .framing(tap_framing),
+                .sweeps(tap_sweeps), .partials(tap_partials), .checks(tap_checks),
+                .err0(tap_err0), .err1(tap_err1), .sclk_min(tap_sclk_min),
+                .good(tap_good));
+        end else begin : g_no_tap
+            assign tap_valid    = 1'b0;
+            assign tap_ch       = 7'd0;
+            assign tap_value    = 16'd0;
+            assign tap_done     = 1'b0;
+            assign tap_partial  = 1'b0;
+            assign tap_tcap     = 32'd0;
+            assign tap_lost     = 1'b0;
+            assign tap_stat     = 32'd0;
+            assign tap_cycles   = 32'd0;
+            assign tap_framing  = 32'd0;
+            assign tap_sweeps   = 32'd0;
+            assign tap_partials = 32'd0;
+            assign tap_checks   = 32'd0;
+            assign tap_err0     = 32'd0;
+            assign tap_err1     = 32'd0;
+            assign tap_sclk_min = 32'hFFFF_FFFF;
+            assign tap_good     = 1'b0;
+        end
+    endgenerate
+
+    // The engine the timer starts, and the source the frame builder hears.
+    // They are the same thing except in tap mode.
+    wire               eng_busy  = use_pat ? pg_busy  : sm_busy;
+    wire               src_valid = tap_sel ? tap_valid           : use_pat ? pg_valid : sm_valid;
+    wire [CHW-1:0]     src_ch    = tap_sel ? CHW'(tap_ch)        : use_pat ? pg_ch    : sm_ch;
+    wire signed [15:0] src_value = tap_sel ? $signed(tap_value)  : use_pat ? pg_value : sm_value;
+    wire               src_done  = tap_sel ? tap_done            : use_pat ? pg_done  : sm_done;
+    wire [31:0]        fb_tick   = tap_sel ? tap_tcap            : tick;
 
     // ---------------- datagram path ----------------
     wire [SW-1:0] wr_slot, rd_slot;
     wire          fifo_full, fifo_empty, commit, slot_release;
-    wire          fb_wr_en, fb_overrun, fb_busy;
+    wire          fb_wr_en, fb_overrun;
     wire [AW-1:0] fb_wr_addr, q_rd_addr;
     wire [15:0]   fb_wr_data, q_rd_data;
     wire          q_rd_en, dgram_sent;
@@ -256,7 +346,7 @@ module rx_top #(
         .clk(clk), .rst_n(rst_n), .clear(clear_stb),
         .valid(src_valid), .ch(src_ch), .value(src_value),
         .sample_done(src_done),
-        .flags(flags_w), .frame_type(8'd0), .tick(tick),
+        .flags(flags_w), .frame_type(8'd0), .tick(fb_tick),
         .stall(fifo_full), .slot_wr(wr_slot),
         .wr_en(fb_wr_en), .wr_addr(fb_wr_addr), .wr_data(fb_wr_data),
         .commit(commit), .overrun(fb_overrun), .frames(fb_frames),
@@ -302,13 +392,16 @@ module rx_top #(
                 tmr <= 32'd0;
             end else if ((tmr + 32'd1) >= sample_period) begin
                 tmr <= 32'd0;
-                if (!src_busy && !fb_busy) start  <= 1'b1;
-                else                       ov_reg <= ov_reg + 32'd1;
+                // In tap mode a refused start costs no frame (see the header).
+                if (tap_sel)                    start  <= !eng_busy;
+                else if (!eng_busy && !fb_busy) start  <= 1'b1;
+                else                            ov_reg <= ov_reg + 32'd1;
             end else begin
                 tmr <= tmr + 32'd1;
             end
 
-            if (fb_overrun) ov_reg <= ov_reg + 32'd1;
+            if (fb_overrun || tap_lost)
+                ov_reg <= ov_reg + 32'(fb_overrun) + 32'(tap_lost);
             if (clear_stb)  ov_reg <= 32'd0;
         end
     end

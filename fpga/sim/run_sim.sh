@@ -21,7 +21,8 @@ RTL_RX="fpga/rtl/rx/spi_master.sv
         fpga/rtl/rx/qspi_master.sv
         fpga/rtl/rx/ctrl_regs.sv
         fpga/rtl/rx/uart_rx.sv
-        fpga/rtl/rx/uart_tx.sv"
+        fpga/rtl/rx/uart_tx.sv
+        fpga/rtl/rx/spi_tap.sv"
 
 EMU="fpga/upstream/rhd2164-emulator-rtl/rhd2164_emulator.sv
      fpga/upstream/rhd2164-emulator-rtl/spi_frontend.sv
@@ -79,6 +80,13 @@ run_tb tb_spi_master \
     fpga/rtl/rx/spi_master.sv fpga/rtl/rx/miso_phase_select.sv \
     $EMU
 
+# The passive tap against a Rhythm-timed master and two emulator cores, the
+# tap mid-cable: frames vs the master's own decode, glitches, TAP_DELAY scans.
+run_tb tb_spi_tap \
+    fpga/sim/tb_spi_tap.sv \
+    fpga/rtl/rx/spi_tap.sv \
+    $EMU
+
 run_tb tb_frame_builder \
     fpga/sim/tb_frame_builder.sv \
     fpga/rtl/rx/frame_builder.sv fpga/rtl/rx/dgram_mem.sv
@@ -103,10 +111,18 @@ run_tb tb_headstage_arty_s7_25 \
     fpga/rtl/rx/rx_top.sv fpga/rtl/gen/pattern_gen.sv \
     $RTL_RX $EMU
 
+# The tap bitstream: LVDS pins, and the loopback self-test end to end through
+# frame_builder and QSPI.
+run_tb tb_tap_arty_s7_25 \
+    fpga/sim/tb_tap_arty_s7_25.sv fpga/sim/qspi_hd_monitor.sv \
+    fpga/sim/unisim_stubs.sv fpga/boards/tap_arty_s7_25_top.sv \
+    fpga/rtl/rx/rx_top.sv fpga/rtl/gen/pattern_gen.sv \
+    $RTL_RX $EMU
+
 echo
 echo "############################################################"
 for i in "${!names[@]}"; do
-    printf '## %-20s %s\n' "${names[$i]}" "${results[$i]}"
+    printf '## %-24s %s\n' "${names[$i]}" "${results[$i]}"
 done
 echo "############################################################"
 

@@ -140,11 +140,11 @@ Lowercase hex both ways. The board never sends anything unsolicited.
 | `02` | RW | `PHASE_SELECT` | 0–15. MISO sampling phase, in SPI ticks (quarter-SCLK steps); larger writes saturate at 15 |
 | `03` | RW | `MODE` | bit0 pattern REALISTIC, bit1 codec enable, bit2 use internal pattern instead of SPI, bit3 SPI loopback to the on-die emulator (headstage and tap builds; see `CAPS`), bit4 TAP: frames come from the passive tap instead (tap build only; section 7) |
 | `04` | RW | `SPI_DIV` | 0–15. One SPI tick = `SPI_DIV + 1` fast clocks, so SCLK = 24 MHz / (`SPI_DIV` + 1). Phase steps stretch by the same factor. Larger writes saturate at 15 |
-| `05` | RW | `TAP_DELAY` | 0–63, reset 8. How long after the SCLK edge that launched a MISO bit the tap samples it, in fast clocks (10.4 ns). Larger writes saturate at 63 (section 7) |
+| `05` | RW | `TAP_DELAY` | 0–63, reset 8. How long after the SCLK edge that launched a MISO bit the tap samples it, in fast clocks (10.4 ns). Larger writes saturate at 63 (section 7). Tap build only: without a tap, `05` answers `err` like an unknown address (check `CAPS` bit9 first) |
 | `10` | R  | `FRAMES` | frames built since the last clear |
 | `11` | R  | `DGRAMS` | datagrams handed to QSPI |
 | `12` | R  | `FIFO_HIGH` | high-water mark, in datagram slots |
-| `13` | R  | `OVERRUNS` | datagrams dropped because the FIFO was full |
+| `13` | R  | `OVERRUNS` | datagrams dropped because the FIFO was full, plus sample starts the source refused (below). In tap mode: datagrams dropped plus sweeps the tap could not frame at all (section 7); a start the idle SPI master refuses is not counted there |
 | `14` | R  | `STALLS` | fast-clock cycles spent waiting on the ESP ready line |
 | `15` | R  | `SPI_CYCLES` | CS cycles issued since the last clear, sweeps and diagnostic lists alike. Climbing proves the SPI master runs |
 | `16` | R  | `LINK_CHECKS` | sweeps whose AUX `READ(59)` result was checked (section 6) |
@@ -172,12 +172,18 @@ Lowercase hex both ways. The board never sends anything unsolicited.
 | `30` | R  | `TAP_STAT` | [4:0] tap line levels right now {miso1, miso0, mosi, sclk, cs_n}; [12:8] the same lines, sticky "toggled since clear"; bit16 tap source selected and running. Reads 0 without a tap |
 | `31` | R  | `TAP_CYCLES` | CS cycles heard (CS low then high) |
 | `32` | R  | `TAP_FRAMING` | CS cycles heard whose SCLK did not make exactly 16 rising and 16 falling edges |
-| `33` | R  | `TAP_SWEEPS` | complete sweeps handed to the frame builder |
+| `33` | R  | `TAP_SWEEPS` | complete sweeps handed to the frame builder, one per tap frame, partial ones included |
 | `34` | R  | `TAP_PARTIAL` | sweeps handed over with `TAP_PARTIAL` set |
 | `35` | R  | `TAP_CHECKS` | heard results that had a known right answer and were compared (section 7) |
 | `36` | R  | `TAP_ERR0` | chip 0 compare failures: [15:0] module A, [31:16] module B, each saturating at `ffff` |
 | `37` | R  | `TAP_ERR1` | chip 1, same layout |
 | `38` | R  | `TAP_SCLK_MIN` | shortest SCLK high or low time heard while CS was low, in fast clocks; `ffffffff` until one is heard |
+
+`TAP_STAT` levels and toggles, `TAP_CYCLES`, `TAP_FRAMING`, `TAP_CHECKS`,
+`TAP_ERR*` and `TAP_SCLK_MIN` follow whatever the tap hears whenever the build
+has one, whatever `MODE` and `run` say, so `TAP_DELAY` can be scanned against
+`TAP_ERR*` before any frame is sent. `TAP_SWEEPS` and `TAP_PARTIAL` move only
+while the tap is the frame source and `run` is set.
 
 Writes to read-only or unknown addresses answer `err`, as do reads of unknown
 addresses. `DIAG_PTR` writes above 63 saturate at 63; the step after a
@@ -364,9 +370,20 @@ the 128 values go to the frame builder in channel order with `flags` bit2 set,
 and with bit3 set as well if any of the 32 slots was missed, unattributable
 (framing error in its command cycle or its result cycle) or heard twice. A
 `CONVERT(0)` result that arrives before `CONVERT(31)`'s ends the open sweep
-early, as partial, and starts a new one. Missing channels in a partial frame read
-0. Every sweep produces exactly one frame, so `seq` counts sweeps and a gap in
-`seq` is a lost datagram, never a skipped sweep.
+early, as partial, and starts a new one; so does a result for a slot the open
+sweep already holds (heard twice: the next sweep began and its `CONVERT(0)` was
+lost). Once the first `CONVERT(0)` has been heard, a channel result that arrives
+with no sweep open opens one (partial: its `CONVERT(0)` was lost). Missing
+channels in a partial frame read 0. Every sweep produces exactly one frame, so
+`seq` counts sweeps and a gap in `seq` is a lost datagram, never a skipped sweep.
+`t_cap` of a tap frame is the tick at which the tap finished hearing the sweep.
+
+The tap holds two sweeps: one filling, one streaming. If a sweep starts while
+both are taken (only a burst of very short sweeps can do that), its values are
+dropped but it still produces its frame, in order: all zeros with bit3 set.
+Only when three such frames are already waiting is a sweep lost; it then
+counts in `OVERRUNS`, the one case where a tap sweep can leave no frame.
+Stopping `run` or leaving tap mode drops the open sweep and any not yet sent.
 
 The payload carries each 16-bit result word **exactly as heard**, in whatever
 format the master configured (RHX uses offset binary, so mid-scale is `0x8000`;
@@ -376,7 +393,8 @@ the chain's own bring-up uses two's complement). The host converts.
 
 Some results have a right answer that does not depend on the signal. When the
 command two cycles earlier was one of these, and no `CALIBRATE` or `CLEAR` was
-heard in the previous 11 cycles, the result is compared and counted in
+heard in the previous 11 cycles (a cycle that was not heard counts as one, as
+does the time before reset), the result is compared and counted in
 `TAP_CHECKS`, and each mismatching lane in `TAP_ERR0` / `TAP_ERR1`:
 
 | Command | Module A | Module B |
@@ -398,4 +416,7 @@ reads both chips correctly, with no reference file.
 In the tap build, MODE bit3 together with bit4 points the tap at the internal
 bus between the receiver's own SPI master and the on-die emulator. With `run`
 set, the master sweeps the emulator as usual and the frames come from the tap,
-so the whole tap path can be proven on the bench with nothing plugged in.
+so the whole tap path can be proven on the bench with nothing plugged in. The
+emulator answers about three fast clocks after an SCLK edge, so use a slow SCLK:
+`SPI_DIV` 15 (half period 32 clocks, close to Rhythm at 2 kS/s) with the reset
+`TAP_DELAY` and `SAMPLE_PERIOD`.

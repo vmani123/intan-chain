@@ -17,11 +17,21 @@
 // rather than from the hex decoders. One clock is invisible next to a UART
 // character, and it keeps the decode and the mux out of one timing path.
 //
-// Writable registers are 00-04 and 20-23. Writes anywhere else, read-only or
-// unknown, answer "err", as do reads of unknown addresses.
+// Writable registers are 00-04 and 20-23, plus 05 (TAP_DELAY) in a build with
+// the passive tap. Writes anywhere else, read-only or unknown, answer "err", as
+// do reads of unknown addresses.
+//
+// THE TAP REGISTERS, AND WHY 05 DEPENDS ON HAS_TAP BUT 30-38 DO NOT
+//   TAP_STAT .. TAP_SCLK_MIN (30-38) read in every build; without a tap the
+//   top feeds them the contract's idle values (0, and ffffffff for
+//   TAP_SCLK_MIN), so a host can read TAP_STAT anywhere and see "no tap".
+//   TAP_DELAY is a setting rather than a reading: a build without the tap
+//   keeps answering "err" at 05, exactly as before the tap existed, and
+//   carries no register for it. CAPS bit9 says which kind of build it is.
 //
 module ctrl_regs #(
-    parameter int CAP_TAPS = 78         // raw taps per CS cycle, at most 96
+    parameter int CAP_TAPS = 78,        // raw taps per CS cycle, at most 96
+    parameter bit HAS_TAP  = 1'b0       // TAP_DELAY (05) exists
 ) (
     input  wire         clk,
     input  wire         rst,            // synchronous, active high
@@ -37,6 +47,7 @@ module ctrl_regs #(
     output logic [31:0] phase_select,   // 0x02, 0..15
     output logic [31:0] mode,           // 0x03
     output logic [31:0] spi_div,        // 0x04, 0..15
+    output logic [31:0] tap_delay,      // 0x05, 0..63, reset 8 (HAS_TAP only)
     output logic        clear_counters_stb,
 
     // Diagnostic list (0x20-0x23). The command memory itself lives outside;
@@ -64,6 +75,17 @@ module ctrl_regs #(
     input  wire  [31:0] miso_edges1,    // 0x1D
     input  wire  [31:0] caps,           // 0x1E
 
+    // Passive tap (0x30-0x38): idle values when the build has none
+    input  wire  [31:0] tap_stat,       // 0x30
+    input  wire  [31:0] tap_cycles,     // 0x31
+    input  wire  [31:0] tap_framing,    // 0x32
+    input  wire  [31:0] tap_sweeps,     // 0x33
+    input  wire  [31:0] tap_partial,    // 0x34
+    input  wire  [31:0] tap_checks,     // 0x35
+    input  wire  [31:0] tap_err0,       // 0x36
+    input  wire  [31:0] tap_err1,       // 0x37
+    input  wire  [31:0] tap_sclk_min,   // 0x38
+
     input  wire  [2:0]  diag_status,    // 0x23 read: {rejected, done, busy}
     input  wire  [15:0] diag_cmd_rd,    // 0x21 read: list entry at diag_ptr
     input  wire  [31:0] diag_res0,      // 0x24
@@ -75,6 +97,8 @@ module ctrl_regs #(
     localparam int LINE_MAX   = 16;     // longest legal line is 13 bytes
     localparam int PHASE_MAX  = 15;     // 78 capture taps cover phases 0..15
     localparam int SPIDIV_MAX = 15;
+    localparam int TAPDLY_MAX = 63;     // CONTRACTS.md section 4
+    localparam int TAPDLY_RST = 8;
     localparam int DIAG_MAX   = 64;     // command list entries
     localparam logic [31:0] ID = 32'h1C10_0002;
 
@@ -151,6 +175,7 @@ module ctrl_regs #(
             8'h02:   rdata = phase_select;
             8'h03:   rdata = mode;
             8'h04:   rdata = spi_div;
+            8'h05:   begin rdata = HAS_TAP ? tap_delay : 32'd0; raddr_ok = HAS_TAP; end
             8'h10:   rdata = frames;
             8'h11:   rdata = dgrams;
             8'h12:   rdata = fifo_high;
@@ -179,12 +204,23 @@ module ctrl_regs #(
             8'h29:   rdata = raw1_w0;
             8'h2A:   rdata = raw1_w1;
             8'h2B:   rdata = raw1_w2;
+            8'h30:   rdata = tap_stat;
+            8'h31:   rdata = tap_cycles;
+            8'h32:   rdata = tap_framing;
+            8'h33:   rdata = tap_sweeps;
+            8'h34:   rdata = tap_partial;
+            8'h35:   rdata = tap_checks;
+            8'h36:   rdata = tap_err0;
+            8'h37:   rdata = tap_err1;
+            8'h38:   rdata = tap_sclk_min;
             default: begin rdata = 32'd0; raddr_ok = 1'b0; end
         endcase
     end
 
-    // Read-only (0x10-0x1F, 0x24-0x2B) and unknown addresses both fail here.
-    wire waddr_ok = (addr_q <= 8'h04) || (addr_q >= 8'h20 && addr_q <= 8'h23);
+    // Read-only (0x10-0x1F, 0x24-0x2B, 0x30-0x38) and unknown addresses both
+    // fail here; so does 0x05 in a build without the tap.
+    wire waddr_ok = (addr_q <= 8'h04) || (HAS_TAP && addr_q == 8'h05)
+                 || (addr_q >= 8'h20 && addr_q <= 8'h23);
     wire eol      = rx_valid && (rx_data == 8'h0A);
 
     logic [7:0] resp [0:11];            // "aa=vvvvvvvv\n" is the longest reply
@@ -207,6 +243,7 @@ module ctrl_regs #(
             phase_select  <= 32'd0;
             mode          <= 32'd0;
             spi_div       <= 32'd0;
+            tap_delay     <= HAS_TAP ? 32'(TAPDLY_RST) : 32'd0;
             diag_ptr      <= 6'd0;
             diag_len      <= 7'd1;
             lcnt          <= 5'd0;
@@ -255,6 +292,7 @@ module ctrl_regs #(
                     8'h02: phase_select  <= (wval_q > PHASE_MAX)  ? PHASE_MAX  : wval_q;
                     8'h03: mode          <= wval_q;
                     8'h04: spi_div       <= (wval_q > SPIDIV_MAX) ? SPIDIV_MAX : wval_q;
+                    8'h05: tap_delay     <= (wval_q > TAPDLY_MAX) ? TAPDLY_MAX : wval_q;
                     8'h20: diag_ptr      <= (wval_q > DIAG_MAX - 1) ? 6'(DIAG_MAX - 1)
                                                                     : wval_q[5:0];
                     8'h21: begin
