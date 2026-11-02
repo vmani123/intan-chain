@@ -96,6 +96,54 @@ before adding the tap.
 MISO1 is chip 0 (channels 0–63), MISO2 chip 1 (64–127), the same split the
 chain and RHX use.
 
+### 3. Building it on the bench
+
+Everything powered off while you solder and wire: the controller, the Arty,
+the ESP.
+
+1. **Label the boards.** Write X on the C3430 that will take the cable from
+   the controller and Y on the one that will take the cable from the
+   headstage. The + / − names in both tables depend on which is which; mixing
+   them up inverts every pair.
+2. **Mount them.** Tape or hot-glue both C3430s to a scrap of perfboard,
+   connectors facing outward, holes about 2–3 cm apart. The Omnetics nano
+   connectors are fragile: the cables should pull on the perfboard, never on
+   the connector.
+3. **Pass-through (table 1).** Twelve short wires, X `T`n to Y `B`n and X `B`n
+   to Y `T`n. Twist each signal pair (1–5) together. Keep power (6) away from
+   the signal pairs.
+4. **Tap wires (table 2).** Solder a second wire into each Y hole next to the
+   pass-through wire (or onto it, right at the hole). Twist each + / − pair
+   and keep them short, ideally under 10 cm to the Arty. If you use the
+   optional 220–470 Ω resistors, put them at the Y end. End the wires on a 2x6
+   header plug, or on jumper leads, so the tap comes off the Arty in one
+   piece.
+5. **Find the Pmod pins.** Pin 1 is marked on the Arty's silkscreen. Pins
+   1–4 / 7–10 are signals, 5 / 11 GND, 6 / 12 3.3 V. Each tap pair lands on
+   two neighbouring pins in one row: JA1/2, JA3/4, JA7/8, JA9/10, JB1/2.
+   Unplug the C3490 converter and its JA wires. The ESP on JC stays.
+6. **Meter it before any power.**
+   - Continuity X → Y on all twelve pass-through wires, and from each Y hole
+     to its Pmod pin.
+   - No short between the two wires of any pair, between neighbouring pairs,
+     or between power (X T6 / Y B6) and ground.
+   - Nothing connected to Pmod pins 6 or 12, and nothing from the cable's
+     power reaching the Arty.
+7. **Pass-through alone first.** Leave the tap unplugged from the Arty.
+   Connect controller -> cable A -> X, Y -> cable B -> headstage. Power the
+   controller, run RHX: the waveforms must look exactly as with one cable
+   (no corrupt-data spikes, the impedance test works). If they don't, fix the
+   pass-through before going further.
+8. **Power order with the tap.** Stop RHX and power the controller off.
+   Plug the tap into JA/JB. Power the Arty, load the tap bitstream, then
+   power the controller and start RHX. An unpowered FPGA clamps its inputs,
+   which loads the lines the headstage is using; a configured one only
+   listens. Do it in the same order after every Arty power cycle (the
+   bitstream is volatile).
+
+Two Intan cables plus the pass-through stay well inside Intan's length limit
+for a 128-channel headstage (21 ft of standard cable, 12 ft of ultra thin).
+
 ## Procedure
 
 Everything runs from `host/` with the venv Python, because `compare` needs
