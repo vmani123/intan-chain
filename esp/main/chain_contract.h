@@ -7,6 +7,8 @@
 #define CHAIN_TYPE_COMPRESSED    0x2   /* payload is a codec blob */
 #define CHAIN_FLAG_REALISTIC     0x1   /* pattern mode: smooth rather than LFSR */
 #define CHAIN_FLAG_CODEC         0x2   /* codec enabled */
+#define CHAIN_FLAG_TAP           0x4   /* overheard from an external SPI master (section 7) */
+#define CHAIN_FLAG_TAP_PARTIAL   0x8   /* tap sweep with a channel not heard cleanly */
 #define CHAIN_HDR_BYTES          0x14   /* frame header size */
 #define CHAIN_TRAILER_BYTES      0xc   /* ESP trailer size, appended once per datagram */
 #define CHAIN_N_CH               0x80   /* channels (2 x RHD2164) */
@@ -19,6 +21,8 @@
 #define CHAIN_PHASE_MAX          0xf   /* largest PHASE_SELECT */
 #define CHAIN_SPI_DIV_MAX        0xf   /* largest SPI_DIV */
 #define CHAIN_DIAG_DEPTH         0x40   /* diagnostic list entries */
+#define CHAIN_TAP_DELAY_MAX      0x3f   /* largest TAP_DELAY */
+#define CHAIN_TAP_DELAY_RESET    0x8   /* TAP_DELAY after reset */
 #define CHAIN_UART_BAUD          0x1c200   /* control interface */
 #define CHAIN_UDP_PORT           0x1389   /* data */
 #define CHAIN_ECHO_PORT          0x138a   /* clock-offset probe */
@@ -55,8 +59,9 @@ _Static_assert(sizeof(chain_trailer_t) == CHAIN_TRAILER_BYTES, "trailer must be 
 #define CHAIN_REG_CTRL           0x00   /* bit0 run, bit1 clear_counters */
 #define CHAIN_REG_SAMPLE_PERIOD  0x01   /* fast-clock ticks between sample starts */
 #define CHAIN_REG_PHASE_SELECT   0x02   /* 0..15, MISO sampling phase in SPI ticks */
-#define CHAIN_REG_MODE           0x03   /* bit0 realistic, bit1 codec, bit2 internal pattern, bit3 loopback */
+#define CHAIN_REG_MODE           0x03   /* bit0 realistic, bit1 codec, bit2 internal pattern, bit3 loopback, bit4 tap */
 #define CHAIN_REG_SPI_DIV        0x04   /* 0..15, SCLK = 24 MHz / (SPI_DIV + 1) */
+#define CHAIN_REG_TAP_DELAY      0x05   /* 0..63, tap MISO sample delay after launch edge, fast clocks */
 #define CHAIN_REG_FRAMES         0x10   /* frames built */
 #define CHAIN_REG_DGRAMS         0x11   /* datagrams sent to QSPI */
 #define CHAIN_REG_FIFO_HIGH      0x12   /* FIFO high-water, in slots */
@@ -71,7 +76,7 @@ _Static_assert(sizeof(chain_trailer_t) == CHAIN_TRAILER_BYTES, "trailer must be 
 #define CHAIN_REG_MISO_STAT      0x1b   /* seen-low/high flags, live levels, loopback */
 #define CHAIN_REG_MISO_EDGES0    0x1c   /* miso0 transitions while CS low */
 #define CHAIN_REG_MISO_EDGES1    0x1d   /* miso1 transitions while CS low */
-#define CHAIN_REG_CAPS           0x1e   /* [7:0] QSPI_DIV, bit8 emulator, [23:16] taps */
+#define CHAIN_REG_CAPS           0x1e   /* [7:0] QSPI_DIV, bit8 emulator, bit9 tap, [23:16] taps */
 #define CHAIN_REG_ID             0x1f   /* magic + version */
 #define CHAIN_REG_DIAG_PTR       0x20   /* diagnostic list index */
 #define CHAIN_REG_DIAG_CMD       0x21   /* list entry at DIAG_PTR; write increments */
@@ -85,3 +90,12 @@ _Static_assert(sizeof(chain_trailer_t) == CHAIN_TRAILER_BYTES, "trailer must be 
 #define CHAIN_REG_DIAG_RAW1_0    0x29   /* miso1 taps 0..31 */
 #define CHAIN_REG_DIAG_RAW1_1    0x2a   /* miso1 taps 32..63 */
 #define CHAIN_REG_DIAG_RAW1_2    0x2b   /* miso1 taps 64..77 */
+#define CHAIN_REG_TAP_STAT       0x30   /* [4:0] levels, [12:8] toggled, bit16 tap running */
+#define CHAIN_REG_TAP_CYCLES     0x31   /* CS cycles heard */
+#define CHAIN_REG_TAP_FRAMING    0x32   /* CS cycles without 16 rising + 16 falling SCLK edges */
+#define CHAIN_REG_TAP_SWEEPS     0x33   /* complete sweeps handed to the frame builder */
+#define CHAIN_REG_TAP_PARTIAL    0x34   /* sweeps handed over with TAP_PARTIAL set */
+#define CHAIN_REG_TAP_CHECKS     0x35   /* known-answer results compared */
+#define CHAIN_REG_TAP_ERR0       0x36   /* chip 0 known-answer failures, [15:0] A, [31:16] B */
+#define CHAIN_REG_TAP_ERR1       0x37   /* chip 1 known-answer failures, [15:0] A, [31:16] B */
+#define CHAIN_REG_TAP_SCLK_MIN   0x38   /* shortest SCLK high/low heard, fast clocks */

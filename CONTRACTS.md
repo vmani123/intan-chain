@@ -25,7 +25,7 @@ One frame is one time sample of every channel.
 |---|---|---|---|
 | 0  | 2 | `magic`       | `0xA55A` |
 | 2  | 1 | `type`        | 0 = RAW16, 2 = COMPRESSED |
-| 3  | 1 | `flags`       | bit0 = pattern REALISTIC (else CHECK), bit1 = codec enabled |
+| 3  | 1 | `flags`       | bit0 = pattern REALISTIC (else CHECK), bit1 = codec enabled, bit2 = TAP (overheard from an external SPI master, section 7), bit3 = TAP_PARTIAL (a TAP sweep with at least one channel not heard cleanly) |
 | 4  | 4 | `seq`         | frame counter, starts at 0, wraps at 2^32. Loss and ordering |
 | 8  | 4 | `t_cap`       | FPGA fast-clock tick when the sample finished capture |
 | 12 | 4 | `t_tx`        | FPGA fast-clock tick when the frame entered the QSPI transfer |
@@ -138,8 +138,9 @@ Lowercase hex both ways. The board never sends anything unsolicited.
 | `00` | RW | `CTRL` | bit0 `run`, bit1 `clear_counters` (self-clearing) |
 | `01` | RW | `SAMPLE_PERIOD` | fast-clock ticks between sample starts. Sets the rate |
 | `02` | RW | `PHASE_SELECT` | 0–15. MISO sampling phase, in SPI ticks (quarter-SCLK steps); larger writes saturate at 15 |
-| `03` | RW | `MODE` | bit0 pattern REALISTIC, bit1 codec enable, bit2 use internal pattern instead of SPI, bit3 SPI loopback to the on-die emulator (headstage build only; see `CAPS`) |
+| `03` | RW | `MODE` | bit0 pattern REALISTIC, bit1 codec enable, bit2 use internal pattern instead of SPI, bit3 SPI loopback to the on-die emulator (headstage and tap builds; see `CAPS`), bit4 TAP: frames come from the passive tap instead (tap build only; section 7) |
 | `04` | RW | `SPI_DIV` | 0–15. One SPI tick = `SPI_DIV + 1` fast clocks, so SCLK = 24 MHz / (`SPI_DIV` + 1). Phase steps stretch by the same factor. Larger writes saturate at 15 |
+| `05` | RW | `TAP_DELAY` | 0–63, reset 8. How long after the SCLK edge that launched a MISO bit the tap samples it, in fast clocks (10.4 ns). Larger writes saturate at 63 (section 7) |
 | `10` | R  | `FRAMES` | frames built since the last clear |
 | `11` | R  | `DGRAMS` | datagrams handed to QSPI |
 | `12` | R  | `FIFO_HIGH` | high-water mark, in datagram slots |
@@ -154,7 +155,7 @@ Lowercase hex both ways. The board never sends anything unsolicited.
 | `1B` | R  | `MISO_STAT` | bit0 / bit1: miso0 seen low / seen high while CS was low (sticky until clear); bit2 / bit3: the same for miso1; bit4 / bit5: miso0 / miso1 level right now; bit8: loopback active |
 | `1C` | R  | `MISO_EDGES0` | miso0 transitions seen while CS was low, since the last clear |
 | `1D` | R  | `MISO_EDGES1` | miso1, same |
-| `1E` | R  | `CAPS` | build facts: [7:0] `QSPI_DIV`, bit8 on-die emulator present (loopback works), [23:16] capture taps per CS cycle (78) |
+| `1E` | R  | `CAPS` | build facts: [7:0] `QSPI_DIV`, bit8 on-die emulator present (loopback works), bit9 passive tap present (MODE bit4 works), [23:16] capture taps per CS cycle (78) |
 | `1F` | R  | `ID` | `0x1C10_0002` — magic + version, proves which bitstream is loaded |
 | `20` | RW | `DIAG_PTR` | 0–63. Index into the diagnostic command list and its results |
 | `21` | RW | `DIAG_CMD` | write: command list entry `DIAG_PTR` = value[15:0], then `DIAG_PTR` += 1. Read: entry `DIAG_PTR`, no side effect |
@@ -168,6 +169,15 @@ Lowercase hex both ways. The board never sends anything unsolicited.
 | `29` | R  | `DIAG_RAW1_0` | miso1, taps 0–31 |
 | `2A` | R  | `DIAG_RAW1_1` | taps 32–63 |
 | `2B` | R  | `DIAG_RAW1_2` | taps 64–77 in [13:0] |
+| `30` | R  | `TAP_STAT` | [4:0] tap line levels right now {miso1, miso0, mosi, sclk, cs_n}; [12:8] the same lines, sticky "toggled since clear"; bit16 tap source selected and running. Reads 0 without a tap |
+| `31` | R  | `TAP_CYCLES` | CS cycles heard (CS low then high) |
+| `32` | R  | `TAP_FRAMING` | CS cycles heard whose SCLK did not make exactly 16 rising and 16 falling edges |
+| `33` | R  | `TAP_SWEEPS` | complete sweeps handed to the frame builder |
+| `34` | R  | `TAP_PARTIAL` | sweeps handed over with `TAP_PARTIAL` set |
+| `35` | R  | `TAP_CHECKS` | heard results that had a known right answer and were compared (section 7) |
+| `36` | R  | `TAP_ERR0` | chip 0 compare failures: [15:0] module A, [31:16] module B, each saturating at `ffff` |
+| `37` | R  | `TAP_ERR1` | chip 1, same layout |
+| `38` | R  | `TAP_SCLK_MIN` | shortest SCLK high or low time heard while CS was low, in fast clocks; `ffffffff` until one is heard |
 
 Writes to read-only or unknown addresses answer `err`, as do reads of unknown
 addresses. `DIAG_PTR` writes above 63 saturate at 63; the step after a
@@ -175,8 +185,10 @@ addresses. `DIAG_PTR` writes above 63 saturate at 63; the step after a
 
 `clear_counters` zeroes `FRAMES` through `STALLS`, `SPI_CYCLES`, `LINK_CHECKS`,
 `LINK_ERR*`, `LINK_LAST*`, the sticky `MISO_STAT` bits and `MISO_EDGES*`, and
-drops LD5 until the next check passes. `MISO_EDGES*` wrap; everything else
-that counts saturates or cannot realistically reach 2^32.
+drops LD5 until the next check passes. It also zeroes `TAP_CYCLES` through
+`TAP_ERR1`, the sticky `TAP_STAT` bits, and sets `TAP_SCLK_MIN` back to
+`ffffffff`. `MISO_EDGES*` wrap; everything else that counts saturates or
+cannot realistically reach 2^32.
 
 `SAMPLE_PERIOD` must be at least the time one sweep takes:
 `35 cycles × 84 ticks × (SPI_DIV + 1)` fast clocks, plus 2 clocks of
@@ -275,3 +287,115 @@ RHD2164 command words (datasheet; RHD2000 series register map):
 ROM registers, read on module A: 40–44 `"INTAN"`, 59 = 53 (module B: 58),
 60 die revision, 61 = 1 (unipolar), 62 = 64 amplifiers, 63 = 4 (RHD2164).
 Registers 18–21 read back correctly only on module B.
+
+---
+
+## 7. Passive tap (tap build)
+
+The tap build checks the chain against Intan's own RHD recording controller.
+The controller stays the SPI master of the headstage. The Arty listens to the
+same five LVDS pairs between two Intan SPI cables, never drives them, and sends
+what it hears through the normal frame -> QSPI -> ESP -> Wi-Fi path. The host
+then compares every sample with the controller's RHX recording.
+
+### Pins
+
+LVDS_25 inputs, `DIFF_TERM` FALSE (the cable is already terminated: CS, SCLK and
+MOSI on the headstage, MISO inside the controller), on the Arty S7's high-speed
+Pmod pairs:
+
+| Pair | Pmod pins (+ / −) | FPGA pins |
+|---|---|---|
+| CS    | JA1 / JA2  | L17 / L18 |
+| SCLK  | JA3 / JA4  | M14 / N14 |
+| MOSI  | JA7 / JA8  | M16 / M17 |
+| MISO1 | JA9 / JA10 | M18 / N18 |
+| MISO2 | JB1 / JB2  | P17 / P18 |
+
+Ground: JA5 / JA11 to the cable ground. Never connect cable power to the Arty.
+`miso0` in this document is the cable's MISO1 (chip 0, channels 0–63), `miso1`
+is MISO2 (chip 1, channels 64–127).
+
+### Decoding one CS cycle
+
+All five lines go through two-flop synchronisers at the fast clock. CS, SCLK
+and MOSI are then delayed together by `TAP_DELAY` clocks; MISO is not. Call the
+delayed copies `cs_d`, `sclk_d`, `mosi_d`. Within one `cs_d` low period, number
+the `sclk_d` rising edges r0..r15 and falling edges f0..f15:
+
+```
+command bit (15 - j)   = mosi_d at r_j
+module A bit (15 - j)  = miso   at r_j          j = 0..15
+module B bit (15 - j)  = miso   at f_j
+```
+
+Why: the RHD2164 puts A bit (15 − j) on MISO at SCLK rising edge j and B bit
+(15 − j) at falling edge j (datasheet p.10; `ddr_miso.sv` in the emulator does
+the same), and the master samples each one an edge later. At the tap, a bit
+appears one round trip (tap -> chip -> tap) plus the chip's tMISO (12 ns max)
+after the edge that launched it, and stays for half an SCLK period. Delaying the
+clock view by `TAP_DELAY` therefore samples each bit `TAP_DELAY` clocks after
+its own launch edge. The usable window is roughly from the round trip (a few
+clocks) to half an SCLK period after it; B0, the last bit, may not outlive CS
+by much, so stay in the first half of that window. At 2 kS/s (Rhythm's SCLK is
+700 × the sample rate, 1.4 MHz) a half period is 34 clocks and the reset value 8
+sits well inside. `TAP_SCLK_MIN` reports the half period actually heard. A
+cycle that does not show exactly 16 rising and 16 falling edges counts in
+`TAP_FRAMING`, and its command and results are treated as not heard.
+
+### From CS cycles to frames
+
+The RHD2164 returns each command's result two CS cycles later, so the result
+heard in cycle i belongs to the command heard in cycle i − 2. For a result whose
+command was `CONVERT(c)` with c < 32:
+
+| Lane | Channel |
+|---|---|
+| chip 0 (miso0) module A | c |
+| chip 0 (miso0) module B | c + 32 |
+| chip 1 (miso1) module A | c + 64 |
+| chip 1 (miso1) module B | c + 96 |
+
+`CONVERT(c)` with c ≥ 32 (auxiliary inputs, supply, temperature) is not a
+channel and is ignored. A sweep starts at the result of `CONVERT(0)` and ends at
+the result of `CONVERT(31)`; results heard before the first `CONVERT(0)` result
+are dropped, so the first frame is the first whole sweep. At the end of a sweep
+the 128 values go to the frame builder in channel order with `flags` bit2 set,
+and with bit3 set as well if any of the 32 slots was missed, unattributable
+(framing error in its command cycle or its result cycle) or heard twice. A
+`CONVERT(0)` result that arrives before `CONVERT(31)`'s ends the open sweep
+early, as partial, and starts a new one. Missing channels in a partial frame read
+0. Every sweep produces exactly one frame, so `seq` counts sweeps and a gap in
+`seq` is a lost datagram, never a skipped sweep.
+
+The payload carries each 16-bit result word **exactly as heard**, in whatever
+format the master configured (RHX uses offset binary, so mid-scale is `0x8000`;
+the chain's own bring-up uses two's complement). The host converts.
+
+### Known answers
+
+Some results have a right answer that does not depend on the signal. When the
+command two cycles earlier was one of these, and no `CALIBRATE` or `CLEAR` was
+heard in the previous 11 cycles, the result is compared and counted in
+`TAP_CHECKS`, and each mismatching lane in `TAP_ERR0` / `TAP_ERR1`:
+
+| Command | Module A | Module B |
+|---|---|---|
+| `WRITE(r, d)` | `0xFF`,d | not checked |
+| `READ(40..44)` | `0x00`,`"INTAN"`[r − 40] | not checked |
+| `READ(59)` | `0x0035` | `0x003A` |
+| `READ(61)` | `0x0001` | not checked |
+| `READ(62)` | `0x0040` | not checked |
+| `READ(63)` | `0x0004` | not checked |
+
+Whether the controller sends any of these while streaming is up to RHX, so
+`TAP_CHECKS` may stay at 0; the sample-by-sample comparison on the host is the
+real check. When it does climb, `TAP_ERR*` at 0 says the `TAP_DELAY` in force
+reads both chips correctly, with no reference file.
+
+### Self-test without Intan
+
+In the tap build, MODE bit3 together with bit4 points the tap at the internal
+bus between the receiver's own SPI master and the on-die emulator. With `run`
+set, the master sweeps the emulator as usual and the frames come from the tap,
+so the whole tap path can be proven on the bench with nothing plugged in.

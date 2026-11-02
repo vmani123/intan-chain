@@ -6,6 +6,8 @@ TYPE_RAW16 = 0  # payload is n_ch x int16
 TYPE_COMPRESSED = 2  # payload is a codec blob
 FLAG_REALISTIC = 1  # pattern mode: smooth rather than LFSR
 FLAG_CODEC = 2  # codec enabled
+FLAG_TAP = 4  # overheard from an external SPI master (section 7)
+FLAG_TAP_PARTIAL = 8  # tap sweep with a channel not heard cleanly
 HDR_BYTES = 20  # frame header size
 TRAILER_BYTES = 12  # ESP trailer size, appended once per datagram
 N_CH = 128  # channels (2 x RHD2164)
@@ -18,6 +20,8 @@ CAP_TAPS = 78  # MISO taps recorded per CS cycle
 PHASE_MAX = 15  # largest PHASE_SELECT
 SPI_DIV_MAX = 15  # largest SPI_DIV
 DIAG_DEPTH = 64  # diagnostic list entries
+TAP_DELAY_MAX = 63  # largest TAP_DELAY
+TAP_DELAY_RESET = 8  # TAP_DELAY after reset
 UART_BAUD = 115200  # control interface
 UDP_PORT = 5001  # data
 ECHO_PORT = 5002  # clock-offset probe
@@ -40,8 +44,9 @@ REG = {
     'CTRL': 0x00,  # bit0 run, bit1 clear_counters
     'SAMPLE_PERIOD': 0x01,  # fast-clock ticks between sample starts
     'PHASE_SELECT': 0x02,  # 0..15, MISO sampling phase in SPI ticks
-    'MODE': 0x03,  # bit0 realistic, bit1 codec, bit2 internal pattern, bit3 loopback
+    'MODE': 0x03,  # bit0 realistic, bit1 codec, bit2 internal pattern, bit3 loopback, bit4 tap
     'SPI_DIV': 0x04,  # 0..15, SCLK = 24 MHz / (SPI_DIV + 1)
+    'TAP_DELAY': 0x05,  # 0..63, tap MISO sample delay after launch edge, fast clocks
     'FRAMES': 0x10,  # frames built
     'DGRAMS': 0x11,  # datagrams sent to QSPI
     'FIFO_HIGH': 0x12,  # FIFO high-water, in slots
@@ -56,7 +61,7 @@ REG = {
     'MISO_STAT': 0x1b,  # seen-low/high flags, live levels, loopback
     'MISO_EDGES0': 0x1c,  # miso0 transitions while CS low
     'MISO_EDGES1': 0x1d,  # miso1 transitions while CS low
-    'CAPS': 0x1e,  # [7:0] QSPI_DIV, bit8 emulator, [23:16] taps
+    'CAPS': 0x1e,  # [7:0] QSPI_DIV, bit8 emulator, bit9 tap, [23:16] taps
     'ID': 0x1f,  # magic + version
     'DIAG_PTR': 0x20,  # diagnostic list index
     'DIAG_CMD': 0x21,  # list entry at DIAG_PTR; write increments
@@ -70,4 +75,13 @@ REG = {
     'DIAG_RAW1_0': 0x29,  # miso1 taps 0..31
     'DIAG_RAW1_1': 0x2a,  # miso1 taps 32..63
     'DIAG_RAW1_2': 0x2b,  # miso1 taps 64..77
+    'TAP_STAT': 0x30,  # [4:0] levels, [12:8] toggled, bit16 tap running
+    'TAP_CYCLES': 0x31,  # CS cycles heard
+    'TAP_FRAMING': 0x32,  # CS cycles without 16 rising + 16 falling SCLK edges
+    'TAP_SWEEPS': 0x33,  # complete sweeps handed to the frame builder
+    'TAP_PARTIAL': 0x34,  # sweeps handed over with TAP_PARTIAL set
+    'TAP_CHECKS': 0x35,  # known-answer results compared
+    'TAP_ERR0': 0x36,  # chip 0 known-answer failures, [15:0] A, [31:16] B
+    'TAP_ERR1': 0x37,  # chip 1 known-answer failures, [15:0] A, [31:16] B
+    'TAP_SCLK_MIN': 0x38,  # shortest SCLK high/low heard, fast clocks
 }
