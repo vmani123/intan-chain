@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Intan Tap Wiring</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+:root {
+  /* bench-schematic look: cool paper, ink lines, one hue per LVDS pair */
+  --bg: #f3f5f8; --panel: #ffffff; --ink: #18202b; --muted: #5b6676; --line: #cfd6df;
+  --accent: #1d5bbf;
+  --cs: #2563c9; --sclk: #b86200; --mosi: #1f7f4a; --miso1: #7a43c4; --miso2: #087f8a;
+  --pwr: #c92a2a; --gnd: #18202b; --qspi: #5b6676;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10151c; --panel: #171e27; --ink: #e5eaf0; --muted: #98a3b2; --line: #2c3744;
+    --accent: #79a6ff;
+    --cs: #6d9dff; --sclk: #f0a03c; --mosi: #4fc386; --miso1: #b18cff; --miso2: #3cc6d0;
+    --pwr: #ff6b6b; --gnd: #e5eaf0; --qspi: #98a3b2;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10151c; --panel: #171e27; --ink: #e5eaf0; --muted: #98a3b2; --line: #2c3744;
+  --accent: #79a6ff;
+  --cs: #6d9dff; --sclk: #f0a03c; --mosi: #4fc386; --miso1: #b18cff; --miso2: #3cc6d0;
+  --pwr: #ff6b6b; --gnd: #e5eaf0; --qspi: #98a3b2;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+main { max-width: 1180px; margin: 0 auto; padding: 32px 20px 56px; display: grid; gap: 28px; }
+header { display: grid; gap: 6px; }
+h1 { margin: 0; font-size: 28px; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { margin: 0 0 4px; font-size: 18px; text-wrap: balance; }
+.lede { margin: 0; max-width: 68ch; color: var(--ink); }
+.meta { margin: 0; color: var(--muted); font-size: 13px; font-family: var(--font-mono); }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 18px 14px; display: grid; gap: 10px; }
+.scroll { overflow-x: auto; }
+figure svg { display: block; width: 100%; min-width: 820px; height: auto; color: var(--ink); }
+figcaption { color: var(--muted); font-size: 14px; max-width: 80ch; }
+figcaption b { color: var(--ink); font-weight: 600; }
+code { font-family: var(--font-mono); font-size: 0.92em; }
+
+svg text { fill: var(--ink); font-family: var(--font-body); font-size: 13px; }
+svg .s { font-size: 11.5px; }
+svg .xs { font-size: 10.5px; }
+svg .b { font-weight: 600; }
+svg .big { font-size: 18px; }
+svg .mono { font-family: var(--font-mono); }
+svg .muted { fill: var(--muted); }
+svg .box { fill: var(--panel); stroke: var(--ink); stroke-width: 1.4; }
+svg .box.hl { stroke: var(--accent); stroke-width: 2; }
+svg .board { fill: none; stroke: var(--line); stroke-width: 1.5; }
+svg .cable { stroke: var(--muted); stroke-width: 7; stroke-linecap: round; }
+svg .thin { stroke: var(--ink); stroke-width: 1.4; }
+svg .tap { stroke: var(--accent); stroke-width: 3; color: var(--accent); }
+svg .link { fill: none; stroke: var(--ink); stroke-width: 1.4; }
+svg .dash { stroke-dasharray: 5 4; }
+svg .f-acc { fill: var(--accent); }
+
+svg .w { fill: none; stroke-width: 2.6; stroke-linecap: round; }
+svg .w.cs { stroke: var(--cs); } svg .w.sclk { stroke: var(--sclk); } svg .w.mosi { stroke: var(--mosi); }
+svg .w.miso1 { stroke: var(--miso1); } svg .w.miso2 { stroke: var(--miso2); }
+svg .w.pwr { stroke: var(--pwr); } svg .w.gnd { stroke: var(--gnd); }
+svg .f-cs { fill: var(--cs); } svg .f-sclk { fill: var(--sclk); } svg .f-mosi { fill: var(--mosi); }
+svg .f-miso1 { fill: var(--miso1); } svg .f-miso2 { fill: var(--miso2); }
+svg .f-pwr { fill: var(--pwr); } svg .f-gnd { fill: var(--gnd); } svg .f-v33 { fill: var(--pwr); }
+svg .f-nc { fill: var(--muted); } svg .f-qspi { fill: var(--ink); }
+
+svg .pad { fill: var(--panel); stroke-width: 1.6; }
+svg .res { fill: var(--panel); stroke-width: 1.3; stroke-dasharray: 3 2; }
+svg .p-cs { stroke: var(--cs); } svg .p-sclk { stroke: var(--sclk); } svg .p-mosi { stroke: var(--mosi); }
+svg .p-miso1 { stroke: var(--miso1); } svg .p-miso2 { stroke: var(--miso2); }
+svg .p-pwr { stroke: var(--pwr); } svg .p-gnd { stroke: var(--gnd); }
+
+svg .cell { stroke-width: 1.4; }
+svg .c-cs { stroke: var(--cs); fill: color-mix(in srgb, var(--cs) 13%, var(--panel)); }
+svg .c-sclk { stroke: var(--sclk); fill: color-mix(in srgb, var(--sclk) 13%, var(--panel)); }
+svg .c-mosi { stroke: var(--mosi); fill: color-mix(in srgb, var(--mosi) 13%, var(--panel)); }
+svg .c-miso1 { stroke: var(--miso1); fill: color-mix(in srgb, var(--miso1) 13%, var(--panel)); }
+svg .c-miso2 { stroke: var(--miso2); fill: color-mix(in srgb, var(--miso2) 13%, var(--panel)); }
+svg .c-gnd { stroke: var(--gnd); fill: color-mix(in srgb, var(--gnd) 8%, var(--panel)); }
+svg .c-v33 { stroke: var(--pwr); stroke-dasharray: 4 3; fill: var(--panel); }
+svg .c-nc { stroke: var(--line); fill: var(--panel); }
+svg .c-qspi { stroke: var(--qspi); fill: color-mix(in srgb, var(--qspi) 10%, var(--panel)); }
+
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.rule { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+.rule.never { border-left: 4px solid var(--pwr); }
+.rule ul, .rule ol { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 6px; }
+.rule p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Intan tap wiring</h1>
+  <p class="lede">The Intan controller keeps driving the headstage through two SPI cables
+  spliced by a pair of C3430 adapter boards. The Arty is wired to board Y and listens to all
+  five LVDS pairs without driving any of them, then sends what it hears over the usual
+  QSPI, ESP32-C5 and Wi-Fi path, so the Mac ends up with two recordings of the same samples.</p>
+  <p class="meta">branch intan-tap-check · docs/intan-tap-check.md · 2026-11-02</p>
+</header>
+
+<figure>
+  <h2>1 · The whole bench</h2>
+  <div class="scroll">
+<svg viewBox="0 0 1120 372" role="img" aria-label="The Intan controller drives the headstage through two SPI cables joined by C3430 boards X and Y; the Arty taps board Y and sends frames over QSPI to the ESP32-C5 and Wi-Fi to the Mac, which also gets the RHX recording over USB.">
+<defs><marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+<rect class="box" x="20" y="40" width="200" height="84" rx="6"/>
+<text class="t b" x="120" y="72" text-anchor="middle">Intan RHD</text>
+<text class="t" x="120" y="90" text-anchor="middle">recording controller</text>
+<text class="t s muted" x="120" y="110" text-anchor="middle">SPI master</text>
+<line class="cable" x1="220" y1="82" x2="330" y2="82"/>
+<text class="t s muted" x="275" y="70" text-anchor="middle">SPI cable A</text>
+<rect class="box hl" x="330" y="52" width="72" height="60" rx="6"/>
+<text class="t s muted" x="366" y="76" text-anchor="middle">C3430</text>
+<text class="t b big" x="366" y="98" text-anchor="middle">X</text>
+<line class="thin" x1="402" y1="72" x2="498" y2="72"/>
+<line class="thin" x1="402" y1="82" x2="498" y2="82"/>
+<line class="thin" x1="402" y1="92" x2="498" y2="92"/>
+<text class="t s" x="450" y="42" text-anchor="middle">12 wires, soldered</text>
+<rect class="box hl" x="498" y="52" width="72" height="60" rx="6"/>
+<text class="t s muted" x="534" y="76" text-anchor="middle">C3430</text>
+<text class="t b big" x="534" y="98" text-anchor="middle">Y</text>
+<line class="cable" x1="570" y1="82" x2="680" y2="82"/>
+<text class="t s muted" x="625" y="70" text-anchor="middle">SPI cable B</text>
+<rect class="box" x="680" y="40" width="200" height="84" rx="6"/>
+<text class="t b" x="780" y="72" text-anchor="middle">Headstage</text>
+<text class="t" x="780" y="90" text-anchor="middle">2 × RHD2164, 128 ch</text>
+<text class="t s muted" x="780" y="110" text-anchor="middle">SPI slave</text>
+<line class="tap" x1="534" y1="112" x2="534" y2="194" marker-end="url(#ah1)"/>
+<text class="t s b f-acc" x="548" y="146">5 LVDS pairs + GND</text>
+<text class="t s muted" x="548" y="163">jumper leads, listen only</text>
+<rect class="box hl" x="430" y="200" width="208" height="84" rx="6"/>
+<text class="t b" x="534" y="230" text-anchor="middle">Arty S7-25</text>
+<text class="t" x="534" y="248" text-anchor="middle">tap bitstream</text>
+<text class="t s muted" x="534" y="268" text-anchor="middle">JA, JB in · JC out</text>
+<rect class="box" x="720" y="200" width="150" height="84" rx="6"/>
+<text class="t b" x="795" y="230" text-anchor="middle">ESP32-C5</text>
+<text class="t" x="795" y="248" text-anchor="middle">DevKitC-1</text>
+<text class="t s muted" x="795" y="268" text-anchor="middle">powered by its USB</text>
+<line class="link" x1="638" y1="242" x2="718" y2="242" marker-end="url(#ah1)"/>
+<text class="t s muted" x="678" y="234" text-anchor="middle">Pmod JC</text>
+<text class="t s muted" x="678" y="258" text-anchor="middle">QSPI</text>
+<rect class="box" x="940" y="180" width="160" height="150" rx="6"/>
+<text class="t b" x="1020" y="206" text-anchor="middle">Mac</text>
+<text class="t s mono" x="954" y="232">RHX: amplifier.dat</text>
+<text class="t s mono" x="954" y="252">tapcheck record</text>
+<text class="t s mono" x="954" y="272">tapcheck compare</text>
+<text class="t s muted" x="954" y="300">every sample,</text>
+<text class="t s muted" x="954" y="316">both recordings</text>
+<line class="link dash" x1="870" y1="242" x2="938" y2="242" marker-end="url(#ah1)"/>
+<text class="t s muted" x="904" y="234" text-anchor="middle">Wi-Fi UDP</text>
+<path class="link" d="M480 284 V312 H938" marker-end="url(#ah1)"/>
+<text class="t s muted" x="700" y="306" text-anchor="middle">USB: program + UART control</text>
+<path class="link" d="M120 124 V352 H1020 V332" marker-end="url(#ah1)"/>
+<text class="t s muted" x="570" y="346" text-anchor="middle">USB: RHX records the same session</text>
+</svg>
+  </div>
+  <figcaption><b>The controller stays the only SPI master.</b> X and Y turn each cable end
+  into 0.1" holes; the wires between them carry the recording exactly as one long cable
+  would. The C3490 converter board is unplugged for this test.</figcaption>
+</figure>
+
+<figure>
+  <h2>2 · Every wire</h2>
+  <div class="scroll">
+<svg viewBox="0 0 1120 584" role="img" aria-label="Pin-level wiring: each X hole goes to the opposite-row Y hole, and each Y signal hole plus ground goes to its Arty Pmod pin; Y B6 cable power never goes to the Arty.">
+<rect class="board" x="126" y="96" width="78" height="472" rx="8"/>
+<rect class="board" x="406" y="96" width="78" height="472" rx="8"/>
+<rect class="board" x="806" y="96" width="172" height="472" rx="8"/>
+<text class="t b" x="30" y="42" text-anchor="start">Signal</text>
+<text class="t b" x="165" y="42" text-anchor="middle">C3430 X</text>
+<text class="t s muted" x="165" y="60" text-anchor="middle">cable A, from controller</text>
+<text class="t b" x="305" y="42" text-anchor="middle">Pass-through</text>
+<text class="t s muted" x="305" y="60" text-anchor="middle">12 soldered wires</text>
+<text class="t b" x="445" y="42" text-anchor="middle">C3430 Y</text>
+<text class="t s muted" x="445" y="60" text-anchor="middle">cable B, from headstage</text>
+<text class="t b" x="645" y="42" text-anchor="middle">Tap</text>
+<text class="t s muted" x="645" y="60" text-anchor="middle">jumper leads, Arty listens only</text>
+<text class="t b" x="892" y="42" text-anchor="middle">Arty S7-25</text>
+<text class="t s muted" x="892" y="60" text-anchor="middle">Pmod pin · FPGA pin</text>
+<text class="t b" x="996" y="42" text-anchor="start">Driven by</text>
+<text class="t xs muted" x="545" y="100" text-anchor="middle">220–470 Ω, optional</text>
+<line class="w cs" x1="165" y1="120" x2="445" y2="120"/>
+<line class="w cs" x1="445" y1="120" x2="848" y2="120"/>
+<line class="w cs" x1="165" y1="152" x2="445" y2="152"/>
+<line class="w cs" x1="445" y1="152" x2="848" y2="152"/>
+<line class="w sclk" x1="165" y1="198" x2="445" y2="198"/>
+<line class="w sclk" x1="445" y1="198" x2="848" y2="198"/>
+<line class="w sclk" x1="165" y1="230" x2="445" y2="230"/>
+<line class="w sclk" x1="445" y1="230" x2="848" y2="230"/>
+<line class="w mosi" x1="165" y1="276" x2="445" y2="276"/>
+<line class="w mosi" x1="445" y1="276" x2="848" y2="276"/>
+<line class="w mosi" x1="165" y1="308" x2="445" y2="308"/>
+<line class="w mosi" x1="445" y1="308" x2="848" y2="308"/>
+<line class="w miso1" x1="165" y1="354" x2="445" y2="354"/>
+<line class="w miso1" x1="445" y1="354" x2="848" y2="354"/>
+<line class="w miso1" x1="165" y1="386" x2="445" y2="386"/>
+<line class="w miso1" x1="445" y1="386" x2="848" y2="386"/>
+<line class="w miso2" x1="165" y1="432" x2="445" y2="432"/>
+<line class="w miso2" x1="445" y1="432" x2="848" y2="432"/>
+<line class="w miso2" x1="165" y1="464" x2="445" y2="464"/>
+<line class="w miso2" x1="445" y1="464" x2="848" y2="464"/>
+<line class="w pwr" x1="165" y1="510" x2="445" y2="510"/>
+<line class="w gnd" x1="165" y1="542" x2="445" y2="542"/>
+<line class="w gnd" x1="445" y1="542" x2="848" y2="542"/>
+<text class="t b f-cs" x="30" y="120" dy="0.35em">CS+</text>
+<rect class="pad p-cs" x="141" y="109" width="48" height="22" rx="4"/>
+<text class="t mono" x="165" y="120" dy="0.35em" text-anchor="middle">T1</text>
+<rect class="pad p-cs" x="421" y="109" width="48" height="22" rx="4"/>
+<text class="t mono" x="445" y="120" dy="0.35em" text-anchor="middle">B1</text>
+<rect class="res p-cs" x="528" y="114" width="34" height="12" rx="2"/>
+<rect class="pad p-cs" x="820" y="109" width="56" height="22" rx="4"/>
+<text class="t mono" x="848" y="120" dy="0.35em" text-anchor="middle">JA1</text>
+<text class="t mono muted" x="890" y="120" dy="0.35em">L17</text>
+<text class="t s" x="996" y="120" dy="0.35em">controller</text>
+<text class="t b f-cs" x="30" y="152" dy="0.35em">CS−</text>
+<rect class="pad p-cs" x="141" y="141" width="48" height="22" rx="4"/>
+<text class="t mono" x="165" y="152" dy="0.35em" text-anchor="middle">B1</text>
+<rect class="pad p-cs" x="421" y="141" width="48" height="22" rx="4"/>
+<text class="t mono" x="445" y="152" dy="0.35em" text-anchor="middle">T1</text>
+<rect class="res p-cs" x="528" y="146" width="34" height="12" rx="2"/>
+<rect class="pad p-cs" x="820" y="141" width="56" height="22" rx="4"/>
+<text class="t mono" x="848" y="152" dy="0.35em" text-anchor="middle">JA2</text>
+<text class="t mono muted" x="890" y="152" dy="0.35em">L18</text>
+<text class="t b f-sclk" x="30" y="198" dy="0.35em">SCLK+</text>
+<rect class="pad p-sclk" x="141" y="187" width="48" height="22" rx="4"/>
+<text class="t mono" x="165" y="198" dy="0.35em" text-anchor="middle">T2</text>
+<rect class="pad p-sclk" x="421" y="187" width="48" height="22" rx="4"/>
+<text class="t mono" x="445" y="198" dy="0.35em" text-anchor="middle">B2</text>
+<rect class="res p-sclk" x="528" y="192" width="34" height="12" rx="2"/>
+<rect class="pad p-sclk" x="820" y="187" width="56" height="22" rx="4"/>
+<text class="t mono" x="848" y="198" dy="0.35em" text-anchor="middle">JA3</text>
+<text class="t mono muted" x="890" y="198" dy="0.35em">M14</text>
+<text class="t s" x="996" y="198" dy="0.35em">controller</text>
+<text class="t b f-sclk" x="30" y="230" dy="0.35em">SCLK−</text>
+<rect class="pad p-sclk" x="141" y="219" width="48" height="22" rx="4"/>
+<text class="t mono" x="165" y="230" dy="0.35em" text-anchor="middle">B2</text>
+<rect class="pad p-sclk" x="421" y="219" width="48" height="22" rx="4"/>
+<text class="t mono" x="445" y="230" dy="0.35em" text-anchor="middle">T2</text>
+<rect class="res p-sclk" x="528" y="224" width="34" height="12" rx="2"/>
+<rect class="pad p-sclk" x="820" y="219" width="56" height="22" rx="4"/>
+<text class="t mono" x="848" y="230" dy="0.35em" text-anchor="middle">JA4</text>
+<text class="t mono muted" x="890" y="230" dy="0.35em">N14</text>
+<text class="t b f-mosi" x="30" y="276" dy="0.35em">MOSI+</text>
+<rect class="pad p-mosi" x="141" y="265" width="48" height="22" rx="4"/>
+<text class="t mono" x="165" y="276" dy="0.35em" text-anchor="middle">T3</text>
+<rect class="pad p-mosi" x="421" y="265" width="48" height="22" rx="4"/>
+<text class="t mono" x="445" y="276" dy="0.35em" text-anchor="middle">B3</text>
+<rect class="res p-mosi" x="528" y="270" width="34" height="12" rx="2"/>
+<rect class="pad p-mosi" x="820" y="265" width="56" height="22" rx="4"/>
+<text class="t mono" x="848" y="276" dy="0.35em" text-anchor="middle">JA7</text>
+<text class="t mono muted" x="890" y="276" dy="0.35em">M16</text>
+<text class="t s" x="996" y="276" dy="0.35em">controller</text>
+<text class="t b f-mosi" x="30" y="308" dy="0.35em">MOSI−</text>
+<rect class="pad p-mosi" x="141" y="297" width="48" height="22" rx="4"/>
+<text class="t mono" x="165" y="308" dy="0.35em" text-anchor="middle">B3</text>
+<rect class="pad p-mosi" x="421" y="297" width="48" height="22" rx="4"/>
+<text class="t mono" x="445" y="308" dy="0.35em" text-anchor="middle">T3</text>
+<rect class="res p-mosi" x="528" y="302" width="34" height="12" rx="2"/>
+<rect class="pad p-mosi" x="820" y="297" width="56" height="22" rx="4"/>
+<text class="t mono" x="848" y="308" dy="0.35em" text-anchor="middle">JA8</text>
+<text class="t mono muted" x="890" y="308" dy="0.35em">M17</text>
+<text class="t b f-miso1" x="30" y="354" dy="0.35em">MISO1+</text>
+<rect class="pad p-miso1" x="141" y="343" width="48" height="22" rx="4"/>
+<text class="t mono" x="165" y="354" dy="0.35em" text-anchor="middle">T4</text>
+<rect class="pad p-miso1" x="421" y="343" width="48" height="22" rx="4"/>
+<text class="t mono" x="445" y="354" dy="0.35em" text-anchor="middle">B4</text>
+<rect class="res p-miso1" x="528" y="348" width="34" height="12" rx="2"/>
+<rect class="pad p-miso1" x="820" y="343" width="56" height="22" rx="4"/>
+<text class="t mono" x="848" y="354" dy="0.35em" text-anchor="middle">JA9</text>
+<text class="t mono muted" x="890" y="354" dy="0.35em">M18</text>
+<text class="t s" x="996" y="354" dy="0.35em">chip 0</text>
+<text class="t b f-miso1" x="30" y="386" dy="0.35em">MISO1−</text>
+<rect class="pad p-miso1" x="141" y="375" width="48" height="22" rx="4"/>
+<text class="t mono" x="165" y="386" dy="0.35em" text-anchor="middle">B4</text>
+<rect class="pad p-miso1" x="421" y="375" width="48" height="22" rx="4"/>
+<text class="t mono" x="445" y="386" dy="0.35em" text-anchor="middle">T4</text>
+<rect class="res p-miso1" x="528" y="380" width="34" height="12" rx="2"/>
+<rect class="pad p-miso1" x="820" y="375" width="56" height="22" rx="4"/>
+<text class="t mono" x="848" y="386" dy="0.35em" text-anchor="middle">JA10</text>
+<text class="t mono muted" x="890" y="386" dy="0.35em">N18</text>
+<text class="t s muted" x="996" y="386" dy="0.35em">ch 0–63</text>
+<text class="t b f-miso2" x="30" y="432" dy="0.35em">MISO2+</text>
+<rect class="pad p-miso2" x="141" y="421" width="48" height="22" rx="4"/>
+<text class="t mono" x="165" y="432" dy="0.35em" text-anchor="middle">T5</text>
+<rect class="pad p-miso2" x="421" y="421" width="48" height="22" rx="4"/>
+<text class="t mono" x="445" y="432" dy="0.35em" text-anchor="middle">B5</text>
+<rect class="res p-miso2" x="528" y="426" width="34" height="12" rx="2"/>
+<rect class="pad p-miso2" x="820" y="421" width="56" height="22" rx="4"/>
+<text class="t mono" x="848" y="432" dy="0.35em" text-anchor="middle">JB1</text>
+<text class="t mono muted" x="890" y="432" dy="0.35em">P17</text>
+<text class="t s" x="996" y="432" dy="0.35em">chip 1</text>
+<text class="t b f-miso2" x="30" y="464" dy="0.35em">MISO2−</text>
+<rect class="pad p-miso2" x="141" y="453" width="48" height="22" rx="4"/>
+<text class="t mono" x="165" y="464" dy="0.35em" text-anchor="middle">B5</text>
+<rect class="pad p-miso2" x="421" y="453" width="48" height="22" rx="4"/>
+<text class="t mono" x="445" y="464" dy="0.35em" text-anchor="middle">T5</text>
+<rect class="res p-miso2" x="528" y="458" width="34" height="12" rx="2"/>
+<rect class="pad p-miso2" x="820" y="453" width="56" height="22" rx="4"/>
+<text class="t mono" x="848" y="464" dy="0.35em" text-anchor="middle">JB2</text>
+<text class="t mono muted" x="890" y="464" dy="0.35em">P18</text>
+<text class="t s muted" x="996" y="464" dy="0.35em">ch 64–127</text>
+<text class="t b f-pwr" x="30" y="510" dy="0.35em">Power</text>
+<rect class="pad p-pwr" x="141" y="499" width="48" height="22" rx="4"/>
+<text class="t mono" x="165" y="510" dy="0.35em" text-anchor="middle">T6</text>
+<rect class="pad p-pwr" x="421" y="499" width="48" height="22" rx="4"/>
+<text class="t mono" x="445" y="510" dy="0.35em" text-anchor="middle">B6</text>
+<text class="t s b f-pwr" x="486" y="510" dy="0.35em">✕ not to the Arty (cable power)</text>
+<text class="t xs f-pwr" x="820" y="510" dy="0.35em">3V3 pins 6, 12: empty</text>
+<text class="t s" x="996" y="510" dy="0.35em">controller</text>
+<text class="t b f-gnd" x="30" y="542" dy="0.35em">Ground</text>
+<rect class="pad p-gnd" x="141" y="531" width="48" height="22" rx="4"/>
+<text class="t mono" x="165" y="542" dy="0.35em" text-anchor="middle">B6</text>
+<rect class="pad p-gnd" x="421" y="531" width="48" height="22" rx="4"/>
+<text class="t mono" x="445" y="542" dy="0.35em" text-anchor="middle">T6</text>
+<rect class="pad p-gnd" x="820" y="531" width="56" height="22" rx="4"/>
+<text class="t mono" x="848" y="542" dy="0.35em" text-anchor="middle">JA5</text>
+<text class="t mono muted" x="890" y="542" dy="0.35em">GND</text>
+</svg>
+  </div>
+  <figcaption><b>Each row is one signal.</b> X and Y swap T and B because the cable flips
+  the connector, so the pass-through always runs T to B. The tap starts at the same Y hole
+  as the pass-through wire. Twist each + with its −. Rows are drawn in signal order;
+  on the boards, follow the printed T1–T6 / B1–B6 labels.</figcaption>
+</figure>
+
+<figure>
+  <h2>3 · Arty Pmod pin map</h2>
+  <div class="scroll">
+<svg viewBox="0 0 1120 214" role="img" aria-label="Arty Pmod pin map: JA carries CS, SCLK, MOSI and MISO1 pairs plus ground on pin 5, JB carries MISO2 on pins 1 and 2, JC keeps the ESP32-C5; pins 6 and 12 (3V3) stay empty on all three.">
+<text class="t b" x="14" y="30">JA</text>
+<text class="t s muted" x="44" y="30">tap: CS, SCLK, MOSI, MISO1</text>
+<rect class="cell c-cs" x="14" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="19" y="59">JA1</text>
+<text class="t s b f-cs" x="41.0" y="76" text-anchor="middle">CS+</text>
+<text class="t xs muted" x="41.0" y="90" text-anchor="middle">Y B1</text>
+<rect class="cell c-cs" x="72" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="77" y="59">JA2</text>
+<text class="t s b f-cs" x="99.0" y="76" text-anchor="middle">CS−</text>
+<text class="t xs muted" x="99.0" y="90" text-anchor="middle">Y T1</text>
+<rect class="cell c-sclk" x="130" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="135" y="59">JA3</text>
+<text class="t s b f-sclk" x="157.0" y="76" text-anchor="middle">SCLK+</text>
+<text class="t xs muted" x="157.0" y="90" text-anchor="middle">Y B2</text>
+<rect class="cell c-sclk" x="188" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="193" y="59">JA4</text>
+<text class="t s b f-sclk" x="215.0" y="76" text-anchor="middle">SCLK−</text>
+<text class="t xs muted" x="215.0" y="90" text-anchor="middle">Y T2</text>
+<rect class="cell c-gnd" x="246" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="251" y="59">JA5</text>
+<text class="t s b f-gnd" x="273.0" y="76" text-anchor="middle">GND</text>
+<text class="t xs muted" x="273.0" y="90" text-anchor="middle">Y T6</text>
+<rect class="cell c-v33" x="304" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="309" y="59">JA6</text>
+<text class="t s b f-v33" x="331.0" y="76" text-anchor="middle">3V3</text>
+<text class="t xs muted" x="331.0" y="90" text-anchor="middle">empty</text>
+<rect class="cell c-mosi" x="14" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="19" y="113">JA7</text>
+<text class="t s b f-mosi" x="41.0" y="130" text-anchor="middle">MOSI+</text>
+<text class="t xs muted" x="41.0" y="144" text-anchor="middle">Y B3</text>
+<rect class="cell c-mosi" x="72" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="77" y="113">JA8</text>
+<text class="t s b f-mosi" x="99.0" y="130" text-anchor="middle">MOSI−</text>
+<text class="t xs muted" x="99.0" y="144" text-anchor="middle">Y T3</text>
+<rect class="cell c-miso1" x="130" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="135" y="113">JA9</text>
+<text class="t s b f-miso1" x="157.0" y="130" text-anchor="middle">MISO1+</text>
+<text class="t xs muted" x="157.0" y="144" text-anchor="middle">Y B4</text>
+<rect class="cell c-miso1" x="188" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="193" y="113">JA10</text>
+<text class="t s b f-miso1" x="215.0" y="130" text-anchor="middle">MISO1−</text>
+<text class="t xs muted" x="215.0" y="144" text-anchor="middle">Y T4</text>
+<rect class="cell c-gnd" x="246" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="251" y="113">JA11</text>
+<text class="t s b f-gnd" x="273.0" y="130" text-anchor="middle">GND</text>
+<text class="t xs muted" x="273.0" y="144" text-anchor="middle">spare</text>
+<rect class="cell c-v33" x="304" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="309" y="113">JA12</text>
+<text class="t s b f-v33" x="331.0" y="130" text-anchor="middle">3V3</text>
+<text class="t xs muted" x="331.0" y="144" text-anchor="middle">empty</text>
+<text class="t xs muted" x="14" y="176">pins 1–6 top row, 7–12 bottom row</text>
+<text class="t b" x="388" y="30">JB</text>
+<text class="t s muted" x="418" y="30">tap: MISO2</text>
+<rect class="cell c-miso2" x="388" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="393" y="59">JB1</text>
+<text class="t s b f-miso2" x="415.0" y="76" text-anchor="middle">MISO2+</text>
+<text class="t xs muted" x="415.0" y="90" text-anchor="middle">Y B5</text>
+<rect class="cell c-miso2" x="446" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="451" y="59">JB2</text>
+<text class="t s b f-miso2" x="473.0" y="76" text-anchor="middle">MISO2−</text>
+<text class="t xs muted" x="473.0" y="90" text-anchor="middle">Y T5</text>
+<rect class="cell c-nc" x="504" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="509" y="59">JB3</text>
+<text class="t s b f-nc" x="531.0" y="76" text-anchor="middle">—</text>
+<rect class="cell c-nc" x="562" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="567" y="59">JB4</text>
+<text class="t s b f-nc" x="589.0" y="76" text-anchor="middle">—</text>
+<rect class="cell c-gnd" x="620" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="625" y="59">JB5</text>
+<text class="t s b f-gnd" x="647.0" y="76" text-anchor="middle">GND</text>
+<text class="t xs muted" x="647.0" y="90" text-anchor="middle">spare</text>
+<rect class="cell c-v33" x="678" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="683" y="59">JB6</text>
+<text class="t s b f-v33" x="705.0" y="76" text-anchor="middle">3V3</text>
+<text class="t xs muted" x="705.0" y="90" text-anchor="middle">empty</text>
+<rect class="cell c-nc" x="388" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="393" y="113">JB7</text>
+<text class="t s b f-nc" x="415.0" y="130" text-anchor="middle">—</text>
+<rect class="cell c-nc" x="446" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="451" y="113">JB8</text>
+<text class="t s b f-nc" x="473.0" y="130" text-anchor="middle">—</text>
+<rect class="cell c-nc" x="504" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="509" y="113">JB9</text>
+<text class="t s b f-nc" x="531.0" y="130" text-anchor="middle">—</text>
+<rect class="cell c-nc" x="562" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="567" y="113">JB10</text>
+<text class="t s b f-nc" x="589.0" y="130" text-anchor="middle">—</text>
+<rect class="cell c-gnd" x="620" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="625" y="113">JB11</text>
+<text class="t s b f-gnd" x="647.0" y="130" text-anchor="middle">GND</text>
+<text class="t xs muted" x="647.0" y="144" text-anchor="middle">spare</text>
+<rect class="cell c-v33" x="678" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="683" y="113">JB12</text>
+<text class="t s b f-v33" x="705.0" y="130" text-anchor="middle">3V3</text>
+<text class="t xs muted" x="705.0" y="144" text-anchor="middle">empty</text>
+<text class="t xs muted" x="388" y="176">pins 1–6 top row, 7–12 bottom row</text>
+<text class="t b" x="762" y="30">JC</text>
+<text class="t s muted" x="792" y="30">ESP32-C5, unchanged</text>
+<rect class="cell c-qspi" x="762" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="767" y="59">JC1</text>
+<text class="t s b f-qspi" x="789.0" y="76" text-anchor="middle">CS</text>
+<text class="t xs muted" x="789.0" y="90" text-anchor="middle">ESP 10</text>
+<rect class="cell c-qspi" x="820" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="825" y="59">JC2</text>
+<text class="t s b f-qspi" x="847.0" y="76" text-anchor="middle">SCLK</text>
+<text class="t xs muted" x="847.0" y="90" text-anchor="middle">ESP 6</text>
+<rect class="cell c-qspi" x="878" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="883" y="59">JC3</text>
+<text class="t s b f-qspi" x="905.0" y="76" text-anchor="middle">D0</text>
+<text class="t xs muted" x="905.0" y="90" text-anchor="middle">ESP 8</text>
+<rect class="cell c-qspi" x="936" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="941" y="59">JC4</text>
+<text class="t s b f-qspi" x="963.0" y="76" text-anchor="middle">D1</text>
+<text class="t xs muted" x="963.0" y="90" text-anchor="middle">ESP 9</text>
+<rect class="cell c-gnd" x="994" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="999" y="59">JC5</text>
+<text class="t s b f-gnd" x="1021.0" y="76" text-anchor="middle">GND</text>
+<text class="t xs muted" x="1021.0" y="90" text-anchor="middle">ESP GND</text>
+<rect class="cell c-v33" x="1052" y="46" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="1057" y="59">JC6</text>
+<text class="t s b f-v33" x="1079.0" y="76" text-anchor="middle">3V3</text>
+<text class="t xs muted" x="1079.0" y="90" text-anchor="middle">empty</text>
+<rect class="cell c-qspi" x="762" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="767" y="113">JC7</text>
+<text class="t s b f-qspi" x="789.0" y="130" text-anchor="middle">D2</text>
+<text class="t xs muted" x="789.0" y="144" text-anchor="middle">ESP 5</text>
+<rect class="cell c-qspi" x="820" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="825" y="113">JC8</text>
+<text class="t s b f-qspi" x="847.0" y="130" text-anchor="middle">D3</text>
+<text class="t xs muted" x="847.0" y="144" text-anchor="middle">ESP 4</text>
+<rect class="cell c-qspi" x="878" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="883" y="113">JC9</text>
+<text class="t s b f-qspi" x="905.0" y="130" text-anchor="middle">READY</text>
+<text class="t xs muted" x="905.0" y="144" text-anchor="middle">← ESP 23</text>
+<rect class="cell c-nc" x="936" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="941" y="113">JC10</text>
+<text class="t s b f-nc" x="963.0" y="130" text-anchor="middle">—</text>
+<rect class="cell c-gnd" x="994" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="999" y="113">JC11</text>
+<text class="t s b f-gnd" x="1021.0" y="130" text-anchor="middle">GND</text>
+<text class="t xs muted" x="1021.0" y="144" text-anchor="middle">spare</text>
+<rect class="cell c-v33" x="1052" y="100" width="54" height="50" rx="4"/>
+<text class="t xs muted mono" x="1057" y="113">JC12</text>
+<text class="t s b f-v33" x="1079.0" y="130" text-anchor="middle">3V3</text>
+<text class="t xs muted" x="1079.0" y="144" text-anchor="middle">empty</text>
+<text class="t xs muted" x="762" y="176">pins 1–6 top row, 7–12 bottom row</text>
+<text class="t xs muted" x="14" y="200">Drawn with pin 1 on the left. On the board, find pin 1 on the silkscreen; from your side the header may read right to left.</text>
+</svg>
+  </div>
+  <figcaption><b>Each tap pair lands on two neighbouring pins of one row</b> (JA1/2, JA3/4,
+  JA7/8, JA9/10, JB1/2), which are the FPGA's differential pairs. A swapped + and − inverts
+  that line; <code>tapcheck status</code> names which one.</figcaption>
+</figure>
+
+<section class="rules">
+  <div class="rule never">
+    <h2>Never</h2>
+    <ul>
+      <li>Connect Y B6 (cable power) to anything but X T6.</li>
+      <li>Use any Pmod 3V3 pin (6 or 12). Only ground is shared.</li>
+      <li>Load the headstage, chain or emulator bitstream while the tap is plugged in. They
+      drive JA1–JA3 as 3.3 V outputs into the cable's CS and SCLK pairs.</li>
+    </ul>
+  </div>
+  <div class="rule">
+    <h2>Meter before power</h2>
+    <ul>
+      <li>Continuity on the 12 X to Y wires and the 11 Y to Pmod wires.</li>
+      <li>No short inside a pair, between neighbouring pairs, or power to ground.</li>
+      <li>Pass-through alone first: RHX must record exactly as with one cable.</li>
+    </ul>
+  </div>
+  <div class="rule">
+    <h2>Power-up order</h2>
+    <ol>
+      <li>Tap unplugged: power the Arty, load the tap bitstream, check
+      <code>tapcheck status</code> shows the tap.</li>
+      <li>Controller off: plug the tap into JA and JB, ground first.</li>
+      <li>Controller on, start RHX.</li>
+    </ol>
+    <p>After any Arty power cycle, unplug the tap before it boots.</p>
+  </div>
+</section>
+</main>
+</body>
+</html>

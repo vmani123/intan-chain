@@ -26,6 +26,9 @@ emulator loopback cover it.
 
 ## Hardware
 
+Wiring diagrams (whole bench, every wire, Pmod pin map):
+[intan-tap-wiring.html](intan-tap-wiring.html), open it in a browser.
+
 - Intan RHD recording controller (or RHD USB interface board) with RHX
 - the headstage (2 x RHD2164 = 128 channels on one port)
 - **two** Intan RHD SPI cables (C3203 / C3206 / C3211 / ...)
