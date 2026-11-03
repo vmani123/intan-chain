@@ -118,6 +118,22 @@ the ESP.
    optional 220–470 Ω resistors, put them at the Y end. End the wires on a 2x6
    header plug, or on jumper leads, so the tap comes off the Arty in one
    piece.
+
+   **Jumper-lead variant.** No splitter chip is needed: the split is just
+   the point where three wires meet (X, Y, Arty). Each line has one driver
+   and one terminating resistor, and the Arty only listens, so a parallel
+   wire overhears it the way a scope probe does. To make the tap pluggable,
+   solder 0.1" header pins into the eleven Y holes you need (all but B6), and
+   solder the pass-through wires to the same pads. Then run female-to-male
+   jumpers from the Y pins to JA/JB, pair by pair, and twist them. Keep three
+   things soldered:
+   - **The X ↔ Y pass-through.** The Intan recording you compare against
+     travels over it. A loose jumper there corrupts the reference, and the
+     compare blames the chain for it.
+   - **The Omnetics end.** Jumpers cannot reach the cable's own connector
+     (0.025" pitch), so the two C3430s are the minimum hardware.
+   - **No breadboard.** The T and B holes with the same number sit side by
+     side, so a header pushed into a breadboard shorts + to − in one strip.
 5. **Find the Pmod pins.** Pin 1 is marked on the Arty's silkscreen. Pins
    1–4 / 7–10 are signals, 5 / 11 GND, 6 / 12 3.3 V. Each tap pair lands on
    two neighbouring pins in one row: JA1/2, JA3/4, JA7/8, JA9/10, JB1/2.
@@ -134,12 +150,18 @@ the ESP.
    controller, run RHX: the waveforms must look exactly as with one cable
    (no corrupt-data spikes, the impedance test works). If they don't, fix the
    pass-through before going further.
-8. **Power order with the tap.** Stop RHX and power the controller off.
-   Plug the tap into JA/JB. Power the Arty, load the tap bitstream, then
-   power the controller and start RHX. An unpowered FPGA clamps its inputs,
-   which loads the lines the headstage is using; a configured one only
-   listens. Do it in the same order after every Arty power cycle (the
-   bitstream is volatile).
+8. **Power order with the tap.** Tap unplugged: power the Arty, load the
+   tap bitstream, and check `tapcheck status` reports the tap (CAPS bit9).
+   Stop RHX and power the controller off. Plug the tap into JA/JB, ground
+   first. Then power the controller and start RHX. An unpowered FPGA clamps
+   its inputs, which loads the lines the headstage is using; a configured
+   tap build only listens.
+   - **Only the tap build may be loaded while the tap is plugged in.** The
+     headstage, chain and emulator builds drive JA1–JA3 as 3.3 V outputs,
+     straight into the cable's CS and SCLK pairs against the controller's
+     drivers. Unplug the tap before loading any other build.
+   - **After every Arty power cycle, unplug the tap first.** The bitstream is
+     volatile, and on power-up the Arty boots whatever is in its flash.
 
 Two Intan cables plus the pass-through stay well inside Intan's length limit
 for a 128-channel headstage (21 ft of standard cable, 12 ft of ultra thin).
