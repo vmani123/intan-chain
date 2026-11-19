@@ -62,6 +62,13 @@ static const char *TAG = "tcp";
 #define CONNECT_TIMEOUT_MS   1000
 #define RECONNECT_GAP_MS      300
 #define FALLBACK_SLOTS         24   /* internal RAM, if there is no PSRAM */
+/* After a connection that was up drops (Wi-Fi blip, node out of range, host
+ * restarted the viewer), keep the spool for this long while reconnecting and
+ * send it, oldest first, on the new connection. Under the spool's own span
+ * (2000 slots = 5 s at 400/s) so the hold itself does not overflow it. Only
+ * past this, or before any host has ever connected, is the spool discarded:
+ * a viewer started minutes later should begin on live data, not a backlog. */
+#define HOLD_MS              4000
 
 static uint8_t      *s_spool;
 static uint32_t      s_slots;
@@ -206,6 +213,7 @@ static void sender_task(void *arg)
     int      have = 0;          /* cur holds a record not yet sent in full */
     uint16_t cur = 0;
     int64_t  next_report = esp_timer_get_time() + 1000000;
+    int64_t  down_since = 0;    /* when an established connection was lost */
 
     for (;;) {
         int64_t now = esp_timer_get_time();
@@ -217,24 +225,31 @@ static void sender_task(void *arg)
         if (fd < 0) {
             fd = open_conn();
             if (fd < 0) {
+                int64_t t = esp_timer_get_time();
+                int holding = down_since && (t - down_since) < (int64_t)HOLD_MS * 1000;
                 if (failures++ % 20 == 0) {
-                    ESP_LOGW(TAG, "no listener at %s:%d (start the viewer with --tcp); "
-                             "retrying, data discarded meanwhile",
-                             CONFIG_CHAIN_HOST_IP, (int)CHAIN_UDP_PORT);
+                    ESP_LOGW(TAG, "no listener at %s:%d (start the viewer with --tcp); retrying, %s",
+                             CONFIG_CHAIN_HOST_IP, (int)CHAIN_UDP_PORT,
+                             holding ? "holding the spool" : "data discarded meanwhile");
                 }
-                if (have) {
-                    pipe_note_sent(NULL, -1);
-                    s_idle_drops++;
-                    xQueueSend(s_free_q, &cur, 0);
-                    have = 0;
+                if (!holding) {
+                    down_since = 0;
+                    if (have) {
+                        pipe_note_sent(NULL, -1);
+                        s_idle_drops++;
+                        xQueueSend(s_free_q, &cur, 0);
+                        have = 0;
+                    }
+                    discard_spool();
                 }
-                discard_spool();
                 vTaskDelay(pdMS_TO_TICKS(RECONNECT_GAP_MS));
                 continue;
             }
+            ESP_LOGI(TAG, "connected to %s:%d, spool %u datagrams%s",
+                     CONFIG_CHAIN_HOST_IP, (int)CHAIN_UDP_PORT, (unsigned)s_slots,
+                     down_since ? ", resending what was held" : "");
             failures = 0;
-            ESP_LOGI(TAG, "connected to %s:%d, spool %u datagrams",
-                     CONFIG_CHAIN_HOST_IP, (int)CHAIN_UDP_PORT, (unsigned)s_slots);
+            down_since = 0;
         }
 
         if (!have) {
@@ -256,10 +271,13 @@ static void sender_task(void *arg)
         if (n < 0) {
             /* Part of this record may be on the dead connection; the host drops
              * that partial copy, and `have` keeps the record for the next one. */
-            ESP_LOGW(TAG, "send failed (errno %d)%s, reconnecting", err,
-                     err == EAGAIN ? ": blocked > 20 s" : "");
+            ESP_LOGW(TAG, "send failed (errno %d)%s, reconnecting; up to %u records "
+                     "already in the socket may be lost (the host sees them as a seq gap)",
+                     err, err == EAGAIN ? ": blocked > 20 s" : "",
+                     (unsigned)(CONFIG_LWIP_TCP_SND_BUF_DEFAULT / CHAIN_DGRAM_BYTES + 1));
             close(fd);
             fd = -1;
+            down_since = esp_timer_get_time();   /* hold the spool while reconnecting */
             continue;
         }
 

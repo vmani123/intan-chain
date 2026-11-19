@@ -12,6 +12,7 @@
  */
 
 #include <string.h>
+#include <stdbool.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -19,6 +20,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "sdkconfig.h"
 
 #include "wifi.h"
@@ -51,20 +53,41 @@ static void on_wifi_event(void *arg, esp_event_base_t base,
     if (id == WIFI_EVENT_STA_START) {
 #ifdef BAND_MODE
         /* Has to be after esp_wifi_start() (the API refuses before) and
-         * before the first connect, which is exactly here. */
-        esp_err_t e = esp_wifi_set_band_mode(BAND_MODE);
-        ESP_LOGI(TAG, "band: %s (%s)", BAND_NAME, esp_err_to_name(e));
+         * before the first connect, which is exactly here. Setting the band
+         * restarts the station, which raises STA_START a second time: set it
+         * once. The connect below still runs on both passes -- returning
+         * early would leave the node unconnected if a band change ever did
+         * not restart the station -- and the redundant one only logs
+         * "sta is connecting". */
+        static bool band_set;
+        if (!band_set) {
+            band_set = true;
+            esp_err_t e = esp_wifi_set_band_mode(BAND_MODE);
+            ESP_LOGI(TAG, "band: %s (%s)", BAND_NAME, esp_err_to_name(e));
+        }
 #endif
         esp_wifi_connect();
     } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_retry < CONFIG_CHAIN_WIFI_MAX_RETRY) {
-            s_retry++;
-            ESP_LOGW(TAG, "disconnected, retry %d/%d",
-                     s_retry, CONFIG_CHAIN_WIFI_MAX_RETRY);
-            esp_wifi_connect();
-        } else {
+        bool was_up = xEventGroupGetBits(s_eg) & BIT_GOT_IP;
+        if (!was_up && s_retry >= CONFIG_CHAIN_WIFI_MAX_RETRY) {
+            /* Never associated: app_main is waiting and reboots on this. */
             xEventGroupSetBits(s_eg, BIT_GAVE_UP);
+            return;
         }
+        s_retry++;
+        /* Once the link has been up, never give up: an AP restart or a walk
+         * out of range has to come back on its own, mid-demo, with nobody at
+         * the serial console. Log the first and every 20th retry; reboot as a
+         * last resort if the driver itself has wedged. */
+        if (s_retry == 1 || s_retry % 20 == 0) {
+            ESP_LOGW(TAG, "disconnected, retry %d%s", s_retry,
+                     was_up ? " (was connected; retrying until it returns)" : "");
+        }
+        if (was_up && s_retry >= 30 * CONFIG_CHAIN_WIFI_MAX_RETRY) {
+            ESP_LOGE(TAG, "no association after %d retries, rebooting", s_retry);
+            esp_restart();
+        }
+        esp_wifi_connect();
     }
 }
 
@@ -140,6 +163,12 @@ esp_err_t wifi_connect(void)
     strncpy((char *)wc.sta.ssid, CONFIG_CHAIN_WIFI_SSID, sizeof wc.sta.ssid - 1);
     strncpy((char *)wc.sta.password, CONFIG_CHAIN_WIFI_PASSWORD,
             sizeof wc.sta.password - 1);
+    /* Scan every channel and join the strongest AP. The default fast scan
+     * joins the first AP it hears with this SSID: on a campus network with
+     * many APs that is a different one after every reboot or replug, and on
+     * the bench it once picked one at SNR 11 (MCS0) over one at SNR 27. */
+    wc.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    wc.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
 
     /* Keep the Wi-Fi config in RAM. The default writes it to NVS on every
      * start, and a flash write in the middle of bring-up is a stall that has

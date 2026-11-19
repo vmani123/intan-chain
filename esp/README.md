@@ -118,6 +118,15 @@ with the spool on 5 GHz 8011/8011 over 20 s, bit-exact, spool peak 345.
 Keep `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP` off: with Wi-Fi and lwIP buffers
 in PSRAM the single-core C5 managed only ~230 datagrams/s over TCP.
 
+**Surviving unplugs.** Once the node has been associated it retries Wi-Fi
+until the AP returns (rebooting only after 600 failed attempts), instead of
+going quiet after 20. When a TCP connection drops it keeps the spool for 4 s
+while it reconnects and sends it, oldest first, on the new connection; a
+viewer restarted within that window loses ~15 ms (the records caught in the
+dead socket). It scans every channel and joins the strongest AP: the default
+fast scan took the first AP it heard, once at SNR 11 instead of SNR 53. A
+reboot is back on the network in ~19 s.
+
 ```sh
 # from build/c5_qspi/sdkconfig: CONFIG_CHAIN_SINK_TCP=y, CONFIG_SPIRAM=y,
 # CONFIG_SPIRAM_SPEED_80M=y, CONFIG_SPIRAM_IGNORE_NOTFOUND=y,
