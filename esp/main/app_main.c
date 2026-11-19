@@ -28,6 +28,7 @@
 void source_synth_start(void);
 void source_qspi_start(void);
 void sink_udp_start(void);
+void sink_tcp_start(void);
 void sink_check_start(void);
 void echo_start(void);
 
@@ -41,6 +42,14 @@ static const char *TAG = "chain";
 #  error "BENCH_INGRESS not set; pass -DBENCH_INGRESS=synth or -DBENCH_INGRESS=qspi to idf.py"
 #endif
 
+#if CONFIG_CHAIN_LINK_TEST_NO_WIFI
+#  define EGRESS_NAME "check"
+#elif CONFIG_CHAIN_SINK_TCP
+#  define EGRESS_NAME "tcp"
+#else
+#  define EGRESS_NAME "udp"
+#endif
+
 /* One line with every size the three implementations have to agree on.
  * Printed before anything else runs, so a contract mismatch between this
  * binary and the FPGA bitstream or the host tool is visible in the first
@@ -51,10 +60,10 @@ static const char *TAG = "chain";
 static void banner(void)
 {
     ESP_LOGI(TAG,
-             "intan-chain esp | chip=%s ingress=%s | idf=%d.%d.%d | "
+             "intan-chain esp | chip=%s ingress=%s egress=%s | idf=%d.%d.%d | "
              "n_ch=%d hdr=%d frame=%d frames/dgram=%d payload=%d trailer=%d dgram=%d | "
              "udp=%d echo=%d",
-             NODE_CHIP, INGRESS_NAME,
+             NODE_CHIP, INGRESS_NAME, EGRESS_NAME,
              ESP_IDF_VERSION_MAJOR, ESP_IDF_VERSION_MINOR, ESP_IDF_VERSION_PATCH,
              (int)CHAIN_N_CH, (int)CHAIN_HDR_BYTES, (int)CHAIN_RAW16_FRAME,
              (int)CHAIN_FRAMES_PER_DGRAM, (int)CHAIN_DGRAM_PAYLOAD,
@@ -87,6 +96,9 @@ void app_main(void)
 
 #if CONFIG_CHAIN_LINK_TEST_NO_WIFI
     sink_check_start();     /* checks and drops: the link without the radio */
+#elif CONFIG_CHAIN_SINK_TCP
+    sink_tcp_start();       /* blocks instead of dropping when the air is busy */
+    echo_start();
 #else
     sink_udp_start();
     echo_start();

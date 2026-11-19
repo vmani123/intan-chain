@@ -29,6 +29,33 @@ config CHAIN_HOST_IP
         broadcast: broadcast frames are sent at the basic rate (1 or 6 Mbit/s)
         and would cap the measurement far below the link rate.
 
+config CHAIN_SINK_TCP
+    bool "Send over TCP instead of UDP"
+    default n
+    help
+        Connect to CHAIN_HOST_IP on the data port over TCP and write the same
+        fixed-size records back to back, instead of one UDP datagram each.
+        Every datagram is copied at once into a spool in PSRAM
+        (CHAIN_TCP_SPOOL_DGRAMS), so the FPGA never waits; a second task
+        drains the spool into the socket and simply waits while the radio
+        is behind. Late data instead of lost data: only an outage longer
+        than the spool loses anything, and that is counted on the 1 Hz
+        "tcp:" line. Needs CONFIG_SPIRAM and a listener on the host:
+        chain.viewer --tcp. Unset (default) is the UDP sink the throughput
+        numbers were taken with.
+
+config CHAIN_TCP_SPOOL_DGRAMS
+    int "TCP spool depth, datagrams (PSRAM)"
+    depends on CHAIN_SINK_TCP
+    default 2000
+    range 16 6000
+    help
+        How many datagrams the TCP sink can hold while the radio is behind.
+        Each is 1392 bytes and lives in PSRAM (enable CONFIG_SPIRAM). At
+        2 kS/s the FPGA sends 400 datagrams/s, so 2000 rides out a 5 s
+        outage with nothing lost. Without PSRAM the sink falls back to 24
+        datagrams in internal RAM and says so at boot.
+
 config CHAIN_SYNTH_SAMPLE_HZ
     int "Stage 0 synthetic sample rate, Hz per channel"
     default 20000

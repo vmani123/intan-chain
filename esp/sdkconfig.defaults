@@ -40,9 +40,10 @@ CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=64
 CONFIG_LWIP_UDP_RECVMBOX_SIZE=64
 CONFIG_LWIP_TCPIP_TASK_STACK_SIZE=4096
 
-# TCP window/send buffer. This firmware sends UDP only, so these do not touch
-# the data path; they are raised anyway so that running iperf's TCP mode on
-# the same binary gives a comparable reference number.
+# TCP window/send buffer. The default UDP build does not use them; they are
+# raised so that iperf's TCP mode on the same binary gives a comparable
+# reference number. The TCP node (sdkconfig.defaults.tcp) lowers the send
+# buffer to 32 kB to protect internal RAM.
 CONFIG_LWIP_TCP_SND_BUF_DEFAULT=65534
 CONFIG_LWIP_TCP_WND_DEFAULT=65534
 

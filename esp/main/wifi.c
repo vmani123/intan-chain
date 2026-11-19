@@ -31,12 +31,30 @@ static const char *TAG = "wifi";
 static EventGroupHandle_t s_eg;
 static int                s_retry;
 
+/* Band, chosen at build time with -DBENCH_WIFI_BAND=2g|5g|auto (CMake, like
+ * BENCH_INGRESS), so switching it recompiles only main/. "auto" lets the
+ * driver pick, which on a dual-band AP is usually 2.4 GHz -- the crowded one.
+ * Only the C5 has a 5 GHz radio; on the S3 this stays at the driver default. */
+#if defined(CHAIN_WIFI_BAND_5G) && CONFIG_SOC_WIFI_SUPPORT_5G
+#  define BAND_MODE  WIFI_BAND_MODE_5G_ONLY
+#  define BAND_NAME  "5 GHz only"
+#elif defined(CHAIN_WIFI_BAND_2G) && CONFIG_SOC_WIFI_SUPPORT_5G
+#  define BAND_MODE  WIFI_BAND_MODE_2G_ONLY
+#  define BAND_NAME  "2.4 GHz only"
+#endif
+
 static void on_wifi_event(void *arg, esp_event_base_t base,
                           int32_t id, void *data)
 {
     (void)arg; (void)base; (void)data;
 
     if (id == WIFI_EVENT_STA_START) {
+#ifdef BAND_MODE
+        /* Has to be after esp_wifi_start() (the API refuses before) and
+         * before the first connect, which is exactly here. */
+        esp_err_t e = esp_wifi_set_band_mode(BAND_MODE);
+        ESP_LOGI(TAG, "band: %s (%s)", BAND_NAME, esp_err_to_name(e));
+#endif
         esp_wifi_connect();
     } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
         if (s_retry < CONFIG_CHAIN_WIFI_MAX_RETRY) {

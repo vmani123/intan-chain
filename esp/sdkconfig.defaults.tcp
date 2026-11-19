@@ -1,0 +1,36 @@
+# Overlay for the TCP node: the configuration the bench runs (2026-11-18).
+#
+# Applies on top of sdkconfig.defaults when a build directory is created:
+#
+#   idf.py -B build/c5_qspi_tcp -DSDKCONFIG=build/c5_qspi_tcp/sdkconfig \
+#          -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.tcp" \
+#          -DBENCH_INGRESS=qspi -DBENCH_WIFI_BAND=5g set-target esp32c5
+#
+# then menuconfig for the SSID and the host address (those stay out of git),
+# then build flash. Defaults only fill values a sdkconfig does not already
+# have, so use a fresh build directory or delete its sdkconfig first.
+#
+# Measured on CMU-DEVICE, 5 GHz, 2 kS/s x 128 channels: 8011/8011 datagrams
+# over 20 s, bit-exact, spool peak 345 of 2000. See docs/GUIDE.md.
+
+# TCP egress (main/sink_tcp.c) instead of one UDP datagram per send.
+CONFIG_CHAIN_SINK_TCP=y
+
+# The spool lives in PSRAM: 2000 x 1392 B = 2.7 MB, 5 s of data at 2 kS/s.
+# The ESP32-C5-DevKitC-1 N8R8 has 8 MB of quad PSRAM.
+CONFIG_CHAIN_TCP_SPOOL_DGRAMS=2000
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_SPEED_80M=y
+# A module without PSRAM still boots; sink_tcp.c then falls back to a
+# 24-datagram spool in internal RAM and says so in the log.
+CONFIG_SPIRAM_IGNORE_NOTFOUND=y
+
+# Keep Wi-Fi and lwIP buffers in internal RAM. With them in PSRAM the
+# single-core C5 sustained only ~230 datagrams/s over TCP against the 400/s
+# the FPGA produces at 2 kS/s.
+# CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP is not set
+
+# 32 kB of unacknowledged data per connection is plenty at a few ms of round
+# trip, and halves the internal-RAM peak: with 64 kB the free internal heap
+# fell to 6.9 kB during a stall; with 32 kB its low point was 36 kB.
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=32768

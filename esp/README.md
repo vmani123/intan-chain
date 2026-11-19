@@ -100,6 +100,32 @@ the Mac's current IPv4 address as the host, and a 2000 Hz synthetic rate. The
 host address is whatever CMU-SECURE gave the Mac (`ipconfig getifaddr en0`);
 it changes, and the node must be rebuilt when it does.
 
+**UDP or TCP.** By default the node sends each datagram with `sendto()`
+(`main/sink_udp.c`); when the radio is behind, the send fails and the datagram
+is dropped and counted (`txerr`). With **intan-chain benchmark node -> Send
+over TCP** (`CONFIG_CHAIN_SINK_TCP`, `main/sink_tcp.c`) it connects to the
+host on the same port number over TCP and writes the fixed-size records back
+to back. Every datagram is first copied out of the DMA pipe into a spool in
+PSRAM (`CONFIG_CHAIN_TCP_SPOOL_DGRAMS`, 2000 = 5 s at 2 kS/s), so the FPGA
+never stalls; a second task drains the spool into the socket and simply
+waits while the air is busy. Only an outage longer than the spool loses data
+(counted on the 1 Hz `tcp:` line). The host listens with `chain.viewer --tcp`.
+
+The band is a build variable, `-DBENCH_WIFI_BAND=5g|2g|auto` (C5 only). On
+the CMU-DEVICE bench (2026-11-18, 2 kS/s x 128 ch, FPGA CHECK pattern):
+UDP on 2.4 GHz delivered 75-83 % of datagrams, UDP on 5 GHz 94.8 %, and TCP
+with the spool on 5 GHz 8011/8011 over 20 s, bit-exact, spool peak 345.
+Keep `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP` off: with Wi-Fi and lwIP buffers
+in PSRAM the single-core C5 managed only ~230 datagrams/s over TCP.
+
+```sh
+# from build/c5_qspi/sdkconfig: CONFIG_CHAIN_SINK_TCP=y, CONFIG_SPIRAM=y,
+# CONFIG_SPIRAM_SPEED_80M=y, CONFIG_SPIRAM_IGNORE_NOTFOUND=y,
+# CONFIG_LWIP_TCP_SND_BUF_DEFAULT=32768
+idf.py -B build/c5_qspi_tcp -DSDKCONFIG=build/c5_qspi_tcp/sdkconfig -DBENCH_INGRESS=qspi \
+       -DBENCH_WIFI_BAND=5g -p PORT build flash
+```
+
 To prove the FPGA -> ESP link without any network, set **intan-chain
 benchmark node -> QSPI link test** (`CONFIG_CHAIN_LINK_TEST_NO_WIFI`). The
 radio never starts; `main/sink_check.c` checks every datagram's five frame
