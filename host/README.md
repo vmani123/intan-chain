@@ -134,21 +134,72 @@ per S6 snapshot. If the USB serial driver adds latency per read, lower
 ### Viewer
 
     python3 -m chain.viewer --udp                          # board already streaming via the ESP
+    python3 -m chain.viewer --tcp --serial PORT --start    # node built with CONFIG_CHAIN_SINK_TCP
     python3 -m chain.viewer --udp --serial PORT --start    # configure (S0, S2-S5), then run
     python3 -m chain.viewer --uart --serial PORT           # no ESP: diagnostic snapshots
     python3 -m chain.viewer --udp --headless 10            # no display: status + per-channel stats
 
-Top: an **activity map**, one tile per channel (8 x 16; two rows per module:
-chip 0 A, chip 0 B, chip 1 A, chip 1 B), coloured by RMS over the window on a
-log scale (1 µV to 10 mV) and labelled with the channel and its RMS. A red box
-and RAIL mark a channel at the ADC rail; grey and DEAD one that never changed.
+One window, all 128 channels as horizontal **traces** in one panel, channel 0
+on top, time across. Channel numbers run down the left edge (every channel
+when the lanes are tall enough, else every 2nd/4th/8th); a dark rule and a
+label on the left mark each module boundary (chip0 A, chip0 B, chip1 A,
+chip1 B: every 32 channels). Each channel is centred on its median and scaled
+to its own 99th-percentile excursion, then clipped to its lane, so no trace
+can draw over another; when the lanes have room the right edge says what a
+full lane means (e.g. ±1.8 mV), otherwise hover a lane for it. Press `s` for
+one shared scale across all lanes (to compare amplitudes; `--spacing UV`
+fixes it).
 
-Bottom: four panels of 32 **lanes**. Each channel is centred on its median and
-scaled to its own 99th-percentile excursion, then clipped to its lane, so no
-trace can draw over another; the right edge says what a full lane means
-(e.g. ±1.8 mV). Press `s` for one shared scale across all lanes (to compare
-amplitudes; `--spacing UV` fixes it), space to freeze the display, and hover a
-tile or a lane for that channel's RMS, mean, min and max.
+Above the traces, a compact **activity strip**: one tile per channel, one row
+per module, coloured by RMS over the visible window on a log scale (1 µV to
+10 mV). A red rim marks a channel at the ADC rail, grey one that never
+changed, and a dark outline the channels the panel shows when it shows fewer
+than all. `m` hides it and gives the traces the room; click a tile to bring
+that channel into view.
+
+**Scrolling back.** The viewer keeps the last `--history SECONDS` (default
+60; about 0.5 MB per second at 2 kS/s) and the bar under the panel spans all
+of it: drag or click it (the wheel over it pans too). While the view is
+parked in the past it stays put as data keeps arriving (the view line under
+the bar says how far behind live it is); live, it follows the newest frame.
+`--window` is the visible width (default 2 s).
+
+| keys | |
+|---|---|
+| ← / → | pan a quarter window (shift: a whole window); → at the newest frame is live |
+| Home or `h` / End or `l` | oldest held / back to live |
+| space | park the view where it is / back to live (acquisition never stops) |
+| `[` / `]` | shorter / longer window (50 ms ... 10 min, at most `--history`) |
+| ↑ / ↓, wheel over the traces | scroll through channels (PageUp / PageDown: a page) |
+| `+` / `-` | fewer / more lanes: 128, 64, 32, 16, 8 (onto the block under the mouse) |
+| `1`-`4` / `0` | one module (32 lanes) / all 128 |
+| `s`, `m` | shared scale on / off, activity strip on / off |
+
+Hover a lane or a tile for that channel's RMS, mean, min and max over the
+visible window and what a full lane means. **Lost frames** (seq gaps, or a
+jump in t_cap) are never bridged: the trace breaks, the columns they span get
+a pale red tint, and a red mark sits under the panel at each one, so even a
+single lost datagram shows at a 60 s zoom.
+
+Speed: the GUI thread only copies finished images into the window. A render
+thread decimates the history to one min/max column per pixel (columns pinned
+to time, so a live frame shifts the previous image and paints only the new
+columns) and paints the traces and the strip with numpy; labels are cached
+glyph bitmaps. On an M1 Pro, Retina panel 2872 x 1486 px, 128 lanes: about
+5 ms render + 4 ms GUI per live frame, 17 + 4 ms for a full repaint of all
+lanes; a key or a drag is on screen within one render (~20-40 ms). Receiving
+and parsing stay on their own threads, so drawing never drops a datagram.
+
+`--tcp` is for a node built with **intan-chain benchmark node -> Send over
+TCP** (`CONFIG_CHAIN_SINK_TCP`): the node connects to this machine on port
+5001 (TCP) and writes the same 1392-byte records back to back, and the viewer
+cuts them apart by size. On a busy channel UDP loses whatever the radio cannot
+send at once (the node's `txerr`); TCP waits instead, so a burst arrives late
+rather than missing. The node spools up to 2000 datagrams in PSRAM (5 s at
+2 kS/s), so only an outage longer than that loses data, counted on the node's
+`tcp:` line and shown here as seq gaps. A new connection (node rebooted)
+replaces the old one; the status line says whether the node is connected.
+Measured on CMU-DEVICE at 5 GHz: 8011 of 8011 datagrams over 20 s.
 
 The status line shows frame rate, seq gaps and frames lost, malformed
 datagrams, and, with `--serial`, LINK_ERR per lane. `--uart` needs no ESP but
