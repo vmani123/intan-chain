@@ -261,6 +261,8 @@ The `build/c5_qspi_tcp` build:
 | spool | `CONFIG_CHAIN_TCP_SPOOL_DGRAMS=2000`, `CONFIG_SPIRAM=y` | 5 s of outage absorbed in PSRAM |
 | Wi-Fi/lwIP buffers | internal RAM (`SPIRAM_TRY_ALLOCATE_WIFI_LWIP` off) | in PSRAM, TCP managed only 230 of 400 datagrams/s |
 | TCP send buffer | 32 kB | keeps the internal heap above 30 kB |
+| AP choice | scan all channels, join the strongest (`wifi.c`) | the default fast scan joined the first AP it heard: once SNR 11 at MCS0 instead of SNR 53 at MCS7 |
+| reconnects | Wi-Fi retried until it returns; spool held 4 s across a dropped connection | an unplug or a viewer restart must not lose the stream |
 | SSID | `CMU-DEVICE`, open, MAC registered | |
 | host IP | the Mac's current IPv4 (`ipconfig getifaddr en0`) | compiled in; **rebuild when it changes** |
 
@@ -328,6 +330,7 @@ REPO=~/Desktop/Research/HDEMG_PCB_WORK/BASIC_INTAN_CHAIN_CODE/intan-chain/.claud
      the number of lanes (128 down to 8); `1`–`4` show one module, `0` all.
    - **Display:** `s` toggles a shared scale, `m` toggles the activity strip;
      hover a lane or tile for its numbers.
+   - **Chips:** `r` reconfigures them by hand (normally automatic, below).
 
    Lost frames break the trace and get a red mark under the panel. The full
    key table is in `host/README.md`.
@@ -335,6 +338,14 @@ REPO=~/Desktop/Research/HDEMG_PCB_WORK/BASIC_INTAN_CHAIN_CODE/intan-chain/.claud
    `python -m chain.bringup --serial /dev/cu.usbserial-210352BF97961 --spi-div 3 --snapshots 5 --seconds 10 --leave-running`
    and read the summary. Then reattach the viewer *without* `--start`, so the
    settings bring-up chose stay in force.
+
+7. **If something gets unplugged**, leave the viewer running. It watches the
+   link and puts things back (`chain/recover.py`; details in `host/README.md`):
+   - *sleeve / headstage:* status says `LINK DOWN …`; plug it back in and the
+     chips are reconfigured about a second after the link is steady (~4 s).
+   - *C5:* `waiting for the node`; it rejoins and reconnects by itself (~19 s).
+   - *Arty USB:* `Arty USB disconnected`; plug it back in and the viewer
+     reloads the bitstream and redoes bring-up.
 
 What healthy data looks like: tens of µV RMS at rest, no RAIL tiles, traces
 that rise with contraction. Millivolts of identical 60 Hz on every channel
@@ -468,7 +479,32 @@ This took the longest, and the first explanation was wrong.
   a red mark, so loss is visible even at a 60 s zoom. That is how the Wi-Fi
   problem became obvious in the first place.
 
-### 6.7 Tooling
+### 6.7 Unplug and replug
+
+- **A replugged sleeve looks healthy and is not.** The chips lose power, so
+  every register comes back as power-up garbage: most amplifiers off, the
+  wrong ADC format, no calibration. On the bench 43 of 44 checked registers
+  were wrong after a replug. But the link check (READ of the ROM) passes on an
+  unconfigured chip, so LINK_ERR stays clean while every channel reads
+  nonsense. The cure is S4 + S5 again; the viewer now does it by itself.
+- **Watch the live word, not only the counters.** The per-lane LINK_ERR
+  counters saturate at 0xffff, about 33 s at 2 kS/s; after that an unplugged
+  sleeve stops looking worse. The last READ(59) word (LINK_LAST) is live.
+- **A cleared seq froze the viewer.** After any bring-up or FPGA reset seq
+  restarts at 0; the viewer read every new frame as "late" and stored nothing
+  until the new run passed the old one. A seq that goes back while t_cap goes
+  forward (or one far behind) is now a new run.
+- **t_cap wraps every 44.7 s.** An outage longer than half that was placed at
+  the wrong time (a 30 s outage read as -14.7 s). The seq delta now picks the
+  wrap count, since the FPGA numbers the frames an outage loses too.
+- **The C5 picked whichever AP answered first.** After each reboot it could
+  land on a weak AP. It now scans every channel and joins the strongest.
+- Measured on the bench (real chips, registers scrambled to mimic a replug):
+  quick recovery 4.1 s, all 44 registers right afterwards; full recovery with
+  a phase scan 10.8 s, seq restart shown as a break; a viewer restart lost
+  30 frames (15 ms); a C5 reboot was back in 18.7 s.
+
+### 6.8 Tooling
 
 - **Two processes cannot share the UART or the data port.** Bring-up, sweeps
   and the viewer each take the Arty UART and port 5001. Close one before
@@ -496,6 +532,8 @@ All runs at 2 kS/s × 128 channels, using the FPGA's CHECK pattern unless noted.
 | 2026-11-18 | TCP + PSRAM spool, Wi-Fi buffers in PSRAM, 5 GHz | 230 of 400 datagrams/s | spool overflowed |
 | 2026-11-18 | **TCP + PSRAM spool, Wi-Fi buffers internal, 5 GHz** | **8011 / 8011** | 0 gaps, 0 bit errors in 82 Mbit, spool peak 345 |
 | 2026-11-18 | real chips, both, 6 MHz SPI, phase 2 | 0 link errors in 20 040 sweeps | `bringup_20261118-190507.json` |
+| 2026-11-18 | **TCP + spool, 5 GHz, strongest AP (ch 124, −46 dBm, SNR 53)** | **8012 / 8012** | 400 datagrams/s every second, spool peak 13 |
+| 2026-11-18 | recovery on the real chips | quick 4.1 s, full 10.8 s | registers scrambled then restored; viewer restart lost 15 ms; C5 reboot 18.7 s |
 
 Raw records are in `docs/results/` (one JSON per run; `python -m chain.report`
 tabulates them).
@@ -504,6 +542,14 @@ tabulates them).
 
 ## 8. Open issues
 
+- **Chip select released too early** (`spi_master.sv:130`, from the code
+  review): 10.4 ns after the last SCLK edge against the RHD2164's 20.8 ns
+  minimum, leaving module B's last bit readable at only one phase. A likely
+  cause of the single-phase eye below; needs an RTL fix and a Vivado rebuild.
+- **SPI_DIV 0 runs the chips faster than the datasheet allows** (875 ns per
+  command against 950 ns); SPI_DIV ≥ 1 is within spec.
+- **Arty USB replug recovery** (reopen, reload, bring-up) is tested against
+  the fake board only.
 - **Narrow SPI eye.** Every run found a single-phase window. Better
   grounding, a shorter cable or a slower SCLK would widen it; the per-sweep
   link check makes any closure visible immediately.
@@ -643,6 +689,7 @@ tabulates them).
 | `chain/rhd2164.py` | Chip knowledge: command words, ROM, Rhythm's register recipe, MISO tap decode. |
 | `chain/diag.py` | Drives the FPGA's diagnostic list; host-side phase scan and status readers. |
 | `chain/bringup.py` | Staged bring-up S0–S7 with a cause and a check for every failure; JSON report. |
+| `chain/recover.py` | The link watcher: notices an unplug, reconfigures the chips when they return, reopens a lost port, reloads a blank FPGA. Runs inside the viewer. |
 | `chain/fakeboard.py` | The headstage FPGA build and two chip models in memory, with ~25 injectable faults (for tests and `--fake`). |
 | `chain/viewer.py` | The live viewer: sources (UDP, TCP, UART snapshots), loss accounting, the single-panel scrolling window and its keys, headless statistics. |
 | `chain/scroll.py` | The viewer's numpy core: 60 s history ring, per-pixel min/max decimation pinned to time, gap breaks, time and lane navigation, lane rasterizer. No display needed; unit-tested. |
