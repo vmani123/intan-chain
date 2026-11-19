@@ -1,0 +1,294 @@
+{
+ "tool": "chain.bringup",
+ "timestamp": "2026-10-26T17:08:19",
+ "result": "FAIL",
+ "port": "/dev/cu.usbserial-210352BF97961",
+ "options": {
+  "serial": "/dev/cu.usbserial-210352BF97961",
+  "baud": 115200,
+  "timeout": 1.0,
+  "spi_div": 0,
+  "phase": null,
+  "rate": 2000.0,
+  "lower": 1.0,
+  "upper": 500.0,
+  "dsp": true,
+  "dsp_cutoff": 1.0,
+  "seconds": 2.0,
+  "snapshots": 20,
+  "skip_loopback": false,
+  "leave_running": false,
+  "resync_settle": 0.05
+ },
+ "chosen": {
+  "spi_div": 0,
+  "phase": null,
+  "window": null,
+  "sclk_hz": 24000000.0
+ },
+ "lanes": {
+  "chip0 A": false,
+  "chip0 B": false,
+  "chip1 A": false,
+  "chip1 B": false
+ },
+ "config": null,
+ "stages": [
+  {
+   "id": "S0",
+   "name": "FPGA",
+   "status": "PASS",
+   "summary": "ID 0x1c100002, 78 taps, emulator yes, SCLK 24.0 MHz",
+   "checked": [
+    "ID == 0x1c100002",
+    "CAPS taps == 78",
+    "SPI_DIV 0 written and read back"
+   ],
+   "findings": [],
+   "data": {
+    "id": "0x1c100002",
+    "caps": {
+     "qspi_div": 6,
+     "emulator": true,
+     "taps": 78,
+     "raw": 5112070
+    }
+   },
+   "hard": false
+  },
+  {
+   "id": "S1",
+   "name": "Self-test",
+   "status": "PASS",
+   "summary": "emulator ROM on 4 lanes, window 5-6",
+   "checked": [
+    "FPGA decode == host decode of the raw taps, every word",
+    "ROM read on all 4 lanes through the on-die emulator"
+   ],
+   "findings": [],
+   "data": {
+    "eye": {
+     "chip0 A": {
+      "matches": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       9,
+       9,
+       8,
+       8,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "total": 9,
+      "windows": [
+       [
+        5,
+        6
+       ]
+      ]
+     },
+     "chip0 B": {
+      "matches": [
+       0,
+       0,
+       0,
+       6,
+       6,
+       7,
+       7,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "total": 7,
+      "windows": [
+       [
+        5,
+        6
+       ]
+      ]
+     },
+     "chip1 A": {
+      "matches": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       9,
+       9,
+       8,
+       8,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "total": 9,
+      "windows": [
+       [
+        5,
+        6
+       ]
+      ]
+     },
+     "chip1 B": {
+      "matches": [
+       0,
+       0,
+       0,
+       6,
+       6,
+       7,
+       7,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "total": 7,
+      "windows": [
+       [
+        5,
+        6
+       ]
+      ]
+     }
+    }
+   },
+   "hard": false
+  },
+  {
+   "id": "S2",
+   "name": "Bus activity",
+   "status": "FAIL",
+   "summary": "miso0 stuck low, miso1 stuck low",
+   "checked": [
+    "SPI_CYCLES advanced by exactly 12"
+   ],
+   "findings": [
+    {
+     "status": "FAIL",
+     "category": "MISO_STUCK_LOW",
+     "scope": "chip0",
+     "message": "miso0 never high while CS was low (0 edges)",
+     "cause": "miso0 never went high: the FPGA input's pull-down is all it sees, so nothing drives it",
+     "check": "the MISO0 wire from the LVDS converter output to the FPGA pin (fpga/boards/*.xdc); the converter's 3.3 V supply; a common ground between headstage supply, converter and Arty"
+    },
+    {
+     "status": "FAIL",
+     "category": "MISO_STUCK_LOW",
+     "scope": "chip1",
+     "message": "miso1 never high while CS was low (0 edges)",
+     "cause": "miso1 never went high: the FPGA input's pull-down is all it sees, so nothing drives it",
+     "check": "the MISO1 wire from the LVDS converter output to the FPGA pin (fpga/boards/*.xdc); the converter's 3.3 V supply; a common ground between headstage supply, converter and Arty"
+    },
+    {
+     "status": "FAIL",
+     "category": "BOTH_STUCK",
+     "scope": "both chips",
+     "message": "both lines stuck low",
+     "cause": "both MISO lines are stuck the same way: a cause the two chips share",
+     "check": "headstage power and ground; the cable and its connector; the CS and SCLK pairs; the converter's supply"
+    }
+   ],
+   "data": {
+    "spi_cycles": {
+     "before": 0,
+     "after": 12,
+     "list": 12
+    },
+    "miso": {
+     "miso0": {
+      "state": "stuck_low",
+      "seen_low": true,
+      "seen_high": false,
+      "level": 0,
+      "edges": 0
+     },
+     "miso1": {
+      "state": "stuck_low",
+      "seen_low": true,
+      "seen_high": false,
+      "level": 0,
+      "edges": 0
+     },
+     "loopback": false
+    }
+   },
+   "hard": true
+  },
+  {
+   "id": "S3",
+   "name": "Identity + eye",
+   "status": "SKIP",
+   "summary": "not run: S2 failed",
+   "checked": [],
+   "findings": [],
+   "data": {},
+   "hard": false
+  },
+  {
+   "id": "S4",
+   "name": "Configure",
+   "status": "SKIP",
+   "summary": "not run: S2 failed",
+   "checked": [],
+   "findings": [],
+   "data": {},
+   "hard": false
+  },
+  {
+   "id": "S5",
+   "name": "Calibrate",
+   "status": "SKIP",
+   "summary": "not run: S2 failed",
+   "checked": [],
+   "findings": [],
+   "data": {},
+   "hard": false
+  },
+  {
+   "id": "S6",
+   "name": "Convert snapshot",
+   "status": "SKIP",
+   "summary": "not run: S2 failed",
+   "checked": [],
+   "findings": [],
+   "data": {},
+   "hard": false
+  },
+  {
+   "id": "S7",
+   "name": "Streaming",
+   "status": "SKIP",
+   "summary": "not run: S2 failed",
+   "checked": [],
+   "findings": [],
+   "data": {},
+   "hard": false
+  }
+ ]
+}

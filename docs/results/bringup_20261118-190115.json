@@ -1,0 +1,2188 @@
+{
+ "tool": "chain.bringup",
+ "timestamp": "2026-11-18T19:01:15",
+ "result": "FAIL",
+ "port": "/dev/cu.usbserial-210352BF97961",
+ "options": {
+  "serial": "/dev/cu.usbserial-210352BF97961",
+  "baud": 115200,
+  "timeout": 1.0,
+  "spi_div": 7,
+  "phase": null,
+  "rate": 2000.0,
+  "lower": 1.0,
+  "upper": 500.0,
+  "dsp": true,
+  "dsp_cutoff": 1.0,
+  "seconds": 5.0,
+  "snapshots": 5,
+  "skip_loopback": false,
+  "leave_running": true,
+  "resync_settle": 0.05
+ },
+ "chosen": {
+  "spi_div": 7,
+  "phase": 1,
+  "window": [
+   1,
+   1
+  ],
+  "sclk_hz": 3000000.0
+ },
+ "lanes": {
+  "chip0 A": true,
+  "chip0 B": true,
+  "chip1 A": false,
+  "chip1 B": false
+ },
+ "config": {
+  "rate": 2000.0,
+  "spi_div": 7,
+  "upper_requested_hz": 500.0,
+  "upper_actual_hz": 499.9,
+  "lower_requested_hz": 1.0,
+  "lower_actual_hz": 1.0004,
+  "dsp": true,
+  "dsp_n": 8,
+  "dsp_cutoff_hz": 1.2458,
+  "bias_rate": 4081.6,
+  "mux_bias": 40,
+  "adc_buffer_bias": 8,
+  "twos_comp": true,
+  "registers": [
+   "0xde",
+   "0x48",
+   "0x28",
+   "0x02",
+   "0xd8",
+   "0x00",
+   "0x80",
+   "0x00",
+   "0x1e",
+   "0x85",
+   "0x2b",
+   "0x86",
+   "0x2c",
+   "0x86",
+   "0xff",
+   "0xff",
+   "0xff",
+   "0xff",
+   "0xff",
+   "0xff",
+   "0xff",
+   "0xff"
+  ],
+  "warnings": []
+ },
+ "stages": [
+  {
+   "id": "S0",
+   "name": "FPGA",
+   "status": "PASS",
+   "summary": "ID 0x1c100002, 78 taps, emulator yes, SCLK 3.0 MHz",
+   "checked": [
+    "ID == 0x1c100002",
+    "CAPS taps == 78",
+    "SPI_DIV 7 written and read back"
+   ],
+   "findings": [],
+   "data": {
+    "id": "0x1c100002",
+    "caps": {
+     "qspi_div": 6,
+     "emulator": true,
+     "taps": 78,
+     "raw": 5112070
+    }
+   },
+   "hard": false
+  },
+  {
+   "id": "S1",
+   "name": "Self-test",
+   "status": "PASS",
+   "summary": "emulator ROM on 4 lanes, window 1-2",
+   "checked": [
+    "FPGA decode == host decode of the raw taps, every word",
+    "ROM read on all 4 lanes through the on-die emulator"
+   ],
+   "findings": [],
+   "data": {
+    "eye": {
+     "chip0 A": {
+      "matches": [
+       0,
+       9,
+       9,
+       8,
+       8,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "total": 9,
+      "windows": [
+       [
+        1,
+        2
+       ]
+      ]
+     },
+     "chip0 B": {
+      "matches": [
+       6,
+       7,
+       7,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "total": 7,
+      "windows": [
+       [
+        1,
+        2
+       ]
+      ]
+     },
+     "chip1 A": {
+      "matches": [
+       0,
+       9,
+       9,
+       8,
+       8,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "total": 9,
+      "windows": [
+       [
+        1,
+        2
+       ]
+      ]
+     },
+     "chip1 B": {
+      "matches": [
+       6,
+       7,
+       7,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "total": 7,
+      "windows": [
+       [
+        1,
+        2
+       ]
+      ]
+     }
+    }
+   },
+   "hard": false
+  },
+  {
+   "id": "S2",
+   "name": "Bus activity",
+   "status": "FAIL",
+   "summary": "miso0 toggling, miso1 stuck high",
+   "checked": [
+    "SPI_CYCLES advanced by exactly 12",
+    "miso0 toggles (65 edges)"
+   ],
+   "findings": [
+    {
+     "status": "FAIL",
+     "category": "MISO_STUCK_HIGH",
+     "scope": "chip1",
+     "message": "miso1 never low while CS was low (0 edges)",
+     "cause": "miso1 never went low: the converter's LVDS receiver is in failsafe, so chip 1 is not driving its MISO pair",
+     "check": "chip 1 power at the headstage; the MISO1 pair in the cable (open, or wrong pins); CS and SCLK reaching chip 1 (a chip that never sees CS never drives MISO)"
+    }
+   ],
+   "data": {
+    "spi_cycles": {
+     "before": 0,
+     "after": 12,
+     "list": 12
+    },
+    "miso": {
+     "miso0": {
+      "state": "toggling",
+      "seen_low": true,
+      "seen_high": true,
+      "level": 1,
+      "edges": 65
+     },
+     "miso1": {
+      "state": "stuck_high",
+      "seen_low": false,
+      "seen_high": true,
+      "level": 1,
+      "edges": 0
+     },
+     "loopback": false
+    }
+   },
+   "hard": false
+  },
+  {
+   "id": "S3",
+   "name": "Identity + eye",
+   "status": "FAIL",
+   "summary": "SPI_DIV 7, PHASE_SELECT 1 (window 1-1), 2/4 lanes read their ROM",
+   "checked": [
+    "FPGA decode == host decode of the raw taps, every word",
+    "ROM ('INTAN', marker, ID 4) read by the FPGA at PHASE_SELECT 1 on: chip0 A, chip0 B"
+   ],
+   "findings": [
+    {
+     "status": "FAIL",
+     "category": "ROM_ALL_ONES",
+     "scope": "chip1 A",
+     "message": "reads 0xffff at every phase",
+     "cause": "chip1 A reads 0xffff at every phase: the line is high throughout (see S2)",
+     "check": "as MISO_STUCK_HIGH: chip 1 power, the MISO1 pair, CS/SCLK reaching chip 1"
+    },
+    {
+     "status": "FAIL",
+     "category": "ROM_ALL_ONES",
+     "scope": "chip1 B",
+     "message": "reads 0xffff at every phase",
+     "cause": "chip1 B reads 0xffff at every phase: the line is high throughout (see S2)",
+     "check": "as MISO_STUCK_HIGH: chip 1 power, the MISO1 pair, CS/SCLK reaching chip 1"
+    },
+    {
+     "status": "FAIL",
+     "category": "CHIP_NOT_ANSWERING",
+     "scope": "chip1",
+     "message": "only chip 0 reads its ROM",
+     "cause": "chip 0 answers and chip 1 does not, so the shared CS/SCLK/MOSI lines work",
+     "check": "chip 1's own: power, the MISO1 pair, and its connector pins"
+    },
+    {
+     "status": "WARN",
+     "category": "NARROW_WINDOW",
+     "scope": "board",
+     "message": "common window is the single phase 1",
+     "cause": "only one phase reads every lane: the eye is marginal and may close with temperature or a longer cable",
+     "check": "a larger --spi-div widens the window in time"
+    }
+   ],
+   "data": {
+    "attempts": [
+     {
+      "spi_div": 7,
+      "choice": {
+       "phase": 1,
+       "window": [
+        1,
+        1
+       ],
+       "lanes": [
+        "chip0 A",
+        "chip0 B"
+       ],
+       "per_lane": {
+        "chip0 A": [
+         [
+          1,
+          2
+         ]
+        ],
+        "chip0 B": [
+         [
+          1,
+          1
+         ]
+        ],
+        "chip1 A": [],
+        "chip1 B": []
+       }
+      },
+      "eye": {
+       "chip0 A": {
+        "matches": [
+         0,
+         9,
+         9,
+         8,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": [
+         [
+          1,
+          2
+         ]
+        ]
+       },
+       "chip0 B": {
+        "matches": [
+         6,
+         7,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": [
+         [
+          1,
+          1
+         ]
+        ]
+       },
+       "chip1 A": {
+        "matches": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": []
+       },
+       "chip1 B": {
+        "matches": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": []
+       }
+      }
+     },
+     {
+      "spi_div": 1,
+      "choice": {
+       "phase": 3,
+       "window": [
+        3,
+        3
+       ],
+       "lanes": [
+        "chip0 A",
+        "chip0 B"
+       ],
+       "per_lane": {
+        "chip0 A": [
+         [
+          3,
+          4
+         ]
+        ],
+        "chip0 B": [
+         [
+          3,
+          3
+         ]
+        ],
+        "chip1 A": [],
+        "chip1 B": []
+       }
+      },
+      "eye": {
+       "chip0 A": {
+        "matches": [
+         0,
+         0,
+         0,
+         9,
+         9,
+         8,
+         3,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": [
+         [
+          3,
+          4
+         ]
+        ]
+       },
+       "chip0 B": {
+        "matches": [
+         0,
+         6,
+         6,
+         7,
+         2,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": [
+         [
+          3,
+          3
+         ]
+        ]
+       },
+       "chip1 A": {
+        "matches": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": []
+       },
+       "chip1 B": {
+        "matches": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": []
+       }
+      }
+     },
+     {
+      "spi_div": 3,
+      "choice": {
+       "phase": 2,
+       "window": [
+        2,
+        2
+       ],
+       "lanes": [
+        "chip0 A",
+        "chip0 B"
+       ],
+       "per_lane": {
+        "chip0 A": [
+         [
+          2,
+          3
+         ]
+        ],
+        "chip0 B": [
+         [
+          2,
+          2
+         ]
+        ],
+        "chip1 A": [],
+        "chip1 B": []
+       }
+      },
+      "eye": {
+       "chip0 A": {
+        "matches": [
+         0,
+         0,
+         9,
+         9,
+         8,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": [
+         [
+          2,
+          3
+         ]
+        ]
+       },
+       "chip0 B": {
+        "matches": [
+         6,
+         6,
+         7,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": [
+         [
+          2,
+          2
+         ]
+        ]
+       },
+       "chip1 A": {
+        "matches": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": []
+       },
+       "chip1 B": {
+        "matches": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": []
+       }
+      }
+     }
+    ],
+    "spi_div": 7,
+    "phase": 1,
+    "window": [
+     1,
+     1
+    ],
+    "lanes_ok": {
+     "chip0 A": true,
+     "chip0 B": true,
+     "chip1 A": false,
+     "chip1 B": false
+    },
+    "die_revision": {
+     "chip0": 2
+    }
+   },
+   "hard": false
+  },
+  {
+   "id": "S4",
+   "name": "Configure",
+   "status": "PASS",
+   "summary": "1/1 checked chip(s) configured (upper 499.9 Hz, lower 1.0004 Hz, DSP 1.2458 Hz)",
+   "checked": [
+    "chip 0: 22 echoes (A) and read-back of 0-17 (A), 18-21 (B)"
+   ],
+   "findings": [
+    {
+     "status": "INFO",
+     "category": "INFO",
+     "scope": "chip1",
+     "message": "not checked: module A did not read its ROM in S3",
+     "cause": "",
+     "check": ""
+    }
+   ],
+   "data": {
+    "config": {
+     "rate": 2000.0,
+     "spi_div": 7,
+     "upper_requested_hz": 500.0,
+     "upper_actual_hz": 499.9,
+     "lower_requested_hz": 1.0,
+     "lower_actual_hz": 1.0004,
+     "dsp": true,
+     "dsp_n": 8,
+     "dsp_cutoff_hz": 1.2458,
+     "bias_rate": 4081.6,
+     "mux_bias": 40,
+     "adc_buffer_bias": 8,
+     "twos_comp": true,
+     "registers": [
+      "0xde",
+      "0x48",
+      "0x28",
+      "0x02",
+      "0xd8",
+      "0x00",
+      "0x80",
+      "0x00",
+      "0x1e",
+      "0x85",
+      "0x2b",
+      "0x86",
+      "0x2c",
+      "0x86",
+      "0xff",
+      "0xff",
+      "0xff",
+      "0xff",
+      "0xff",
+      "0xff",
+      "0xff",
+      "0xff"
+     ],
+     "warnings": []
+    }
+   },
+   "hard": false
+  },
+  {
+   "id": "S5",
+   "name": "Calibrate",
+   "status": "PASS",
+   "summary": "the chip gives no calibration read-back; checked it resumes after",
+   "checked": [
+    "CALIBRATE + 9 dummies sent (well over 100 us after S4: UART round trips take milliseconds)",
+    "chip 0 answers READ(63) = 4 after the window"
+   ],
+   "findings": [],
+   "data": {
+    "chip0_window_answers": [
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000"
+    ]
+   },
+   "hard": false
+  },
+  {
+   "id": "S6",
+   "name": "Convert snapshot",
+   "status": "WARN",
+   "summary": "0/64 judged channels unremarkable over 5 snapshots",
+   "checked": [
+    "5 CONVERT sweeps of 64 channels on readable lanes"
+   ],
+   "findings": [
+    {
+     "status": "WARN",
+     "category": "RAILED_CHANNELS",
+     "scope": "channels",
+     "message": "21: 7-8, 11, 16-18, 22, 30-31, 33, 35-36, 38-40, 46, 50, 55, 57, 60, 63",
+     "cause": "these channels sit at the ADC rail: floating inputs, or an electrode offset beyond +-6.4 mV",
+     "check": "electrodes and the reference electrode; normal with nothing attached"
+    },
+    {
+     "status": "WARN",
+     "category": "NOISY_CHANNELS",
+     "scope": "channels",
+     "message": "43: 0-6, 9-10, 12-15, 19-21, 23-29, 32, 34, 37, 41-45, 47-49, 51-54, 56, 58-59, 61-62",
+     "cause": "large spread between snapshots: normal for unconnected inputs, which float and pick up mains",
+     "check": "attach electrodes and reference before judging noise"
+    }
+   ],
+   "data": {
+    "channels": [
+     {
+      "ch": 0,
+      "mean_uv": 1550.41,
+      "std_uv": 991.63,
+      "min": 365.04,
+      "max": 3164.46,
+      "min_lsb": 1872,
+      "max_lsb": 16228,
+      "flag": "N"
+     },
+     {
+      "ch": 1,
+      "mean_uv": 2259.93,
+      "std_uv": 2080.75,
+      "min": -188.96,
+      "max": 4898.99,
+      "min_lsb": -969,
+      "max_lsb": 25123,
+      "flag": "N"
+     },
+     {
+      "ch": 2,
+      "mean_uv": -1506.22,
+      "std_uv": 2264.31,
+      "min": -4886.7,
+      "max": 1263.02,
+      "min_lsb": -25060,
+      "max_lsb": 6477,
+      "flag": "N"
+     },
+     {
+      "ch": 3,
+      "mean_uv": 1319.1,
+      "std_uv": 2469.84,
+      "min": -2433.8,
+      "max": 4330.17,
+      "min_lsb": -12481,
+      "max_lsb": 22206,
+      "flag": "N"
+     },
+     {
+      "ch": 4,
+      "mean_uv": -2794.39,
+      "std_uv": 2032.97,
+      "min": -5208.26,
+      "max": -146.44,
+      "min_lsb": -26709,
+      "max_lsb": -751,
+      "flag": "N"
+     },
+     {
+      "ch": 5,
+      "mean_uv": 3060.02,
+      "std_uv": 1937.96,
+      "min": 617.96,
+      "max": 5612.69,
+      "min_lsb": 3169,
+      "max_lsb": 28783,
+      "flag": "N"
+     },
+     {
+      "ch": 6,
+      "mean_uv": -3134.0,
+      "std_uv": 613.1,
+      "min": -3596.78,
+      "max": -1934.79,
+      "min_lsb": -18445,
+      "max_lsb": -9922,
+      "flag": "N"
+     },
+     {
+      "ch": 7,
+      "mean_uv": -5095.47,
+      "std_uv": 1427.07,
+      "min": -6389.76,
+      "max": -2915.25,
+      "min_lsb": -32768,
+      "max_lsb": -14950,
+      "flag": "R"
+     },
+     {
+      "ch": 8,
+      "mean_uv": 3493.19,
+      "std_uv": 2736.79,
+      "min": -1365.98,
+      "max": 6389.57,
+      "min_lsb": -7005,
+      "max_lsb": 32767,
+      "flag": "R"
+     },
+     {
+      "ch": 9,
+      "mean_uv": -2986.46,
+      "std_uv": 1329.49,
+      "min": -4625.99,
+      "max": -1453.92,
+      "min_lsb": -23723,
+      "max_lsb": -7456,
+      "flag": "N"
+     },
+     {
+      "ch": 10,
+      "mean_uv": 2837.76,
+      "std_uv": 2827.57,
+      "min": -1989.39,
+      "max": 6092.39,
+      "min_lsb": -10202,
+      "max_lsb": 31243,
+      "flag": "N"
+     },
+     {
+      "ch": 11,
+      "mean_uv": 4971.88,
+      "std_uv": 2228.23,
+      "min": 637.26,
+      "max": 6389.57,
+      "min_lsb": 3268,
+      "max_lsb": 32767,
+      "flag": "R"
+     },
+     {
+      "ch": 12,
+      "mean_uv": 1584.26,
+      "std_uv": 1931.86,
+      "min": -1247.41,
+      "max": 3971.18,
+      "min_lsb": -6397,
+      "max_lsb": 20365,
+      "flag": "N"
+     },
+     {
+      "ch": 13,
+      "mean_uv": -2594.2,
+      "std_uv": 1832.51,
+      "min": -4708.28,
+      "max": 141.38,
+      "min_lsb": -24145,
+      "max_lsb": 725,
+      "flag": "N"
+     },
+     {
+      "ch": 14,
+      "mean_uv": 3793.92,
+      "std_uv": 2236.17,
+      "min": -71.37,
+      "max": 5961.35,
+      "min_lsb": -366,
+      "max_lsb": 30571,
+      "flag": "N"
+     },
+     {
+      "ch": 15,
+      "mean_uv": -2950.12,
+      "std_uv": 1021.16,
+      "min": -4602.98,
+      "max": -1844.51,
+      "min_lsb": -23605,
+      "max_lsb": -9459,
+      "flag": "N"
+     },
+     {
+      "ch": 16,
+      "mean_uv": -5048.9,
+      "std_uv": 838.14,
+      "min": -6389.76,
+      "max": -3855.93,
+      "min_lsb": -32768,
+      "max_lsb": -19774,
+      "flag": "R"
+     },
+     {
+      "ch": 17,
+      "mean_uv": -5812.87,
+      "std_uv": 709.9,
+      "min": -6389.76,
+      "max": -4838.53,
+      "min_lsb": -32768,
+      "max_lsb": -24813,
+      "flag": "R"
+     },
+     {
+      "ch": 18,
+      "mean_uv": 4272.02,
+      "std_uv": 2014.51,
+      "min": 1171.95,
+      "max": 6389.57,
+      "min_lsb": 6010,
+      "max_lsb": 32767,
+      "flag": "R"
+     },
+     {
+      "ch": 19,
+      "mean_uv": 659.76,
+      "std_uv": 2037.49,
+      "min": -1714.83,
+      "max": 3762.91,
+      "min_lsb": -8794,
+      "max_lsb": 19297,
+      "flag": "N"
+     },
+     {
+      "ch": 20,
+      "mean_uv": 931.67,
+      "std_uv": 1997.61,
+      "min": -1326.19,
+      "max": 4080.38,
+      "min_lsb": -6801,
+      "max_lsb": 20925,
+      "flag": "N"
+     },
+     {
+      "ch": 21,
+      "mean_uv": -556.26,
+      "std_uv": 2808.62,
+      "min": -5451.61,
+      "max": 2532.47,
+      "min_lsb": -27957,
+      "max_lsb": 12987,
+      "flag": "N"
+     },
+     {
+      "ch": 22,
+      "mean_uv": 4221.59,
+      "std_uv": 2437.4,
+      "min": -117.78,
+      "max": 6389.57,
+      "min_lsb": -604,
+      "max_lsb": 32767,
+      "flag": "R"
+     },
+     {
+      "ch": 23,
+      "mean_uv": -1028.66,
+      "std_uv": 2679.62,
+      "min": -4984.98,
+      "max": 2002.85,
+      "min_lsb": -25564,
+      "max_lsb": 10271,
+      "flag": "N"
+     },
+     {
+      "ch": 24,
+      "mean_uv": 1571.31,
+      "std_uv": 1897.32,
+      "min": -446.16,
+      "max": 4657.77,
+      "min_lsb": -2288,
+      "max_lsb": 23886,
+      "flag": "N"
+     },
+     {
+      "ch": 25,
+      "mean_uv": 963.42,
+      "std_uv": 1387.49,
+      "min": -687.96,
+      "max": 2571.66,
+      "min_lsb": -3528,
+      "max_lsb": 13188,
+      "flag": "N"
+     },
+     {
+      "ch": 26,
+      "mean_uv": 2483.05,
+      "std_uv": 2051.58,
+      "min": -271.44,
+      "max": 5503.29,
+      "min_lsb": -1392,
+      "max_lsb": 28222,
+      "flag": "N"
+     },
+     {
+      "ch": 27,
+      "mean_uv": 2786.16,
+      "std_uv": 2080.53,
+      "min": 304.4,
+      "max": 5938.14,
+      "min_lsb": 1561,
+      "max_lsb": 30452,
+      "flag": "N"
+     },
+     {
+      "ch": 28,
+      "mean_uv": 2406.85,
+      "std_uv": 2083.19,
+      "min": 31.39,
+      "max": 5814.7,
+      "min_lsb": 161,
+      "max_lsb": 29819,
+      "flag": "N"
+     },
+     {
+      "ch": 29,
+      "mean_uv": -2270.07,
+      "std_uv": 1948.08,
+      "min": -4468.03,
+      "max": 841.23,
+      "min_lsb": -22913,
+      "max_lsb": 4314,
+      "flag": "N"
+     },
+     {
+      "ch": 30,
+      "mean_uv": -2884.21,
+      "std_uv": 2014.4,
+      "min": -6389.76,
+      "max": -692.45,
+      "min_lsb": -32768,
+      "max_lsb": -3551,
+      "flag": "R"
+     },
+     {
+      "ch": 31,
+      "mean_uv": -6229.63,
+      "std_uv": 258.22,
+      "min": -6389.76,
+      "max": -5723.84,
+      "min_lsb": -32768,
+      "max_lsb": -29353,
+      "flag": "R"
+     },
+     {
+      "ch": 32,
+      "mean_uv": -3294.68,
+      "std_uv": 1208.54,
+      "min": -5013.65,
+      "max": -1911.2,
+      "min_lsb": -25711,
+      "max_lsb": -9801,
+      "flag": "N"
+     },
+     {
+      "ch": 33,
+      "mean_uv": 4604.46,
+      "std_uv": 1346.92,
+      "min": 2514.53,
+      "max": 6389.57,
+      "min_lsb": 12895,
+      "max_lsb": 32767,
+      "flag": "R"
+     },
+     {
+      "ch": 34,
+      "mean_uv": -1049.61,
+      "std_uv": 2200.82,
+      "min": -5017.15,
+      "max": 1023.36,
+      "min_lsb": -25729,
+      "max_lsb": 5248,
+      "flag": "N"
+     },
+     {
+      "ch": 35,
+      "mean_uv": -3609.22,
+      "std_uv": 1823.44,
+      "min": -6389.76,
+      "max": -1430.52,
+      "min_lsb": -32768,
+      "max_lsb": -7336,
+      "flag": "R"
+     },
+     {
+      "ch": 36,
+      "mean_uv": 5007.41,
+      "std_uv": 1464.83,
+      "min": 2482.93,
+      "max": 6389.57,
+      "min_lsb": 12733,
+      "max_lsb": 32767,
+      "flag": "R"
+     },
+     {
+      "ch": 37,
+      "mean_uv": -2072.62,
+      "std_uv": 1431.28,
+      "min": -4112.16,
+      "max": -596.7,
+      "min_lsb": -21088,
+      "max_lsb": -3060,
+      "flag": "N"
+     },
+     {
+      "ch": 38,
+      "mean_uv": -5378.88,
+      "std_uv": 725.42,
+      "min": -6389.76,
+      "max": -4222.53,
+      "min_lsb": -32768,
+      "max_lsb": -21654,
+      "flag": "R"
+     },
+     {
+      "ch": 39,
+      "mean_uv": -6067.7,
+      "std_uv": 411.9,
+      "min": -6389.76,
+      "max": -5397.02,
+      "min_lsb": -32768,
+      "max_lsb": -27677,
+      "flag": "R"
+     },
+     {
+      "ch": 40,
+      "mean_uv": -4078.15,
+      "std_uv": 2107.7,
+      "min": -6389.76,
+      "max": -886.08,
+      "min_lsb": -32768,
+      "max_lsb": -4544,
+      "flag": "R"
+     },
+     {
+      "ch": 41,
+      "mean_uv": 23.32,
+      "std_uv": 1015.23,
+      "min": -1438.52,
+      "max": 1232.01,
+      "min_lsb": -7377,
+      "max_lsb": 6318,
+      "flag": "N"
+     },
+     {
+      "ch": 42,
+      "mean_uv": 1108.15,
+      "std_uv": 2817.1,
+      "min": -4221.16,
+      "max": 3671.27,
+      "min_lsb": -21647,
+      "max_lsb": 18827,
+      "flag": "N"
+     },
+     {
+      "ch": 43,
+      "mean_uv": 70.0,
+      "std_uv": 1108.32,
+      "min": -1341.21,
+      "max": 1282.12,
+      "min_lsb": -6878,
+      "max_lsb": 6575,
+      "flag": "N"
+     },
+     {
+      "ch": 44,
+      "mean_uv": 2268.28,
+      "std_uv": 1819.17,
+      "min": -81.7,
+      "max": 5101.2,
+      "min_lsb": -419,
+      "max_lsb": 26160,
+      "flag": "N"
+     },
+     {
+      "ch": 45,
+      "mean_uv": -2834.48,
+      "std_uv": 1079.25,
+      "min": -4441.32,
+      "max": -1559.81,
+      "min_lsb": -22776,
+      "max_lsb": -7999,
+      "flag": "N"
+     },
+     {
+      "ch": 46,
+      "mean_uv": -3825.94,
+      "std_uv": 2092.64,
+      "min": -6389.76,
+      "max": -1410.83,
+      "min_lsb": -32768,
+      "max_lsb": -7235,
+      "flag": "R"
+     },
+     {
+      "ch": 47,
+      "mean_uv": 2208.49,
+      "std_uv": 1444.96,
+      "min": 501.54,
+      "max": 3885.77,
+      "min_lsb": 2572,
+      "max_lsb": 19927,
+      "flag": "N"
+     },
+     {
+      "ch": 48,
+      "mean_uv": 1230.14,
+      "std_uv": 970.53,
+      "min": -185.06,
+      "max": 2425.02,
+      "min_lsb": -949,
+      "max_lsb": 12436,
+      "flag": "N"
+     },
+     {
+      "ch": 49,
+      "mean_uv": 2433.25,
+      "std_uv": 2518.39,
+      "min": -2274.48,
+      "max": 4936.23,
+      "min_lsb": -11664,
+      "max_lsb": 25314,
+      "flag": "N"
+     },
+     {
+      "ch": 50,
+      "mean_uv": 4088.21,
+      "std_uv": 2122.76,
+      "min": 336.96,
+      "max": 6389.57,
+      "min_lsb": 1728,
+      "max_lsb": 32767,
+      "flag": "R"
+     },
+     {
+      "ch": 51,
+      "mean_uv": -2082.29,
+      "std_uv": 1455.97,
+      "min": -3804.64,
+      "max": -523.97,
+      "min_lsb": -19511,
+      "max_lsb": -2687,
+      "flag": "N"
+     },
+     {
+      "ch": 52,
+      "mean_uv": 1371.01,
+      "std_uv": 1573.18,
+      "min": -568.82,
+      "max": 3028.93,
+      "min_lsb": -2917,
+      "max_lsb": 15533,
+      "flag": "N"
+     },
+     {
+      "ch": 53,
+      "mean_uv": 2758.74,
+      "std_uv": 2521.46,
+      "min": -327.21,
+      "max": 6284.85,
+      "min_lsb": -1678,
+      "max_lsb": 32230,
+      "flag": "N"
+     },
+     {
+      "ch": 54,
+      "mean_uv": 755.9,
+      "std_uv": 1898.72,
+      "min": -2281.89,
+      "max": 2984.28,
+      "min_lsb": -11702,
+      "max_lsb": 15304,
+      "flag": "N"
+     },
+     {
+      "ch": 55,
+      "mean_uv": 5202.21,
+      "std_uv": 1278.52,
+      "min": 2896.53,
+      "max": 6389.57,
+      "min_lsb": 14854,
+      "max_lsb": 32767,
+      "flag": "R"
+     },
+     {
+      "ch": 56,
+      "mean_uv": -2420.03,
+      "std_uv": 1333.76,
+      "min": -4102.41,
+      "max": -937.95,
+      "min_lsb": -21038,
+      "max_lsb": -4810,
+      "flag": "N"
+     },
+     {
+      "ch": 57,
+      "mean_uv": 5311.96,
+      "std_uv": 1366.85,
+      "min": 2908.04,
+      "max": 6389.57,
+      "min_lsb": 14913,
+      "max_lsb": 32767,
+      "flag": "R"
+     },
+     {
+      "ch": 58,
+      "mean_uv": 528.06,
+      "std_uv": 2212.76,
+      "min": -2659.61,
+      "max": 3391.05,
+      "min_lsb": -13639,
+      "max_lsb": 17390,
+      "flag": "N"
+     },
+     {
+      "ch": 59,
+      "mean_uv": 1624.51,
+      "std_uv": 1184.66,
+      "min": -192.47,
+      "max": 3073.79,
+      "min_lsb": -987,
+      "max_lsb": 15763,
+      "flag": "N"
+     },
+     {
+      "ch": 60,
+      "mean_uv": 3530.87,
+      "std_uv": 1927.26,
+      "min": 905.19,
+      "max": 6389.57,
+      "min_lsb": 4642,
+      "max_lsb": 32767,
+      "flag": "R"
+     },
+     {
+      "ch": 61,
+      "mean_uv": -1680.98,
+      "std_uv": 2164.19,
+      "min": -5076.63,
+      "max": 1199.84,
+      "min_lsb": -26034,
+      "max_lsb": 6153,
+      "flag": "N"
+     },
+     {
+      "ch": 62,
+      "mean_uv": -5353.14,
+      "std_uv": 692.75,
+      "min": -6121.24,
+      "max": -4153.11,
+      "min_lsb": -31391,
+      "max_lsb": -21298,
+      "flag": "N"
+     },
+     {
+      "ch": 63,
+      "mean_uv": -5778.4,
+      "std_uv": 651.33,
+      "min": -6389.76,
+      "max": -4895.28,
+      "min_lsb": -32768,
+      "max_lsb": -25104,
+      "flag": "R"
+     },
+     {
+      "ch": 64,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 65,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 66,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 67,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 68,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 69,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 70,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 71,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 72,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 73,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 74,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 75,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 76,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 77,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 78,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 79,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 80,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 81,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 82,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 83,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 84,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 85,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 86,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 87,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 88,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 89,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 90,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 91,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 92,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 93,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 94,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 95,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 96,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 97,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 98,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 99,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 100,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 101,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 102,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 103,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 104,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 105,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 106,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 107,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 108,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 109,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 110,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 111,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 112,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 113,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 114,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 115,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 116,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 117,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 118,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 119,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 120,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 121,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 122,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 123,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 124,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 125,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 126,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     },
+     {
+      "ch": 127,
+      "mean_uv": -0.2,
+      "std_uv": 0.0,
+      "min": -0.2,
+      "max": -0.2,
+      "min_lsb": -1,
+      "max_lsb": -1,
+      "flag": "x"
+     }
+    ]
+   },
+   "hard": false
+  },
+  {
+   "id": "S7",
+   "name": "Streaming",
+   "status": "PASS",
+   "summary": "10039 sweeps at 2000 S/s, 0 lane(s) with link errors, left running",
+   "checked": [
+    "LINK_CHECKS 10039 = rate x time",
+    "chip0 A: 0 link errors",
+    "chip0 B: 0 link errors",
+    "FRAMES 10173",
+    "ESP draining QSPI: DGRAMS 2041"
+   ],
+   "findings": [
+    {
+     "status": "INFO",
+     "category": "INFO",
+     "scope": "chip1 A",
+     "message": "10077 link errors, expected: this lane failed S3",
+     "cause": "",
+     "check": ""
+    },
+    {
+     "status": "INFO",
+     "category": "INFO",
+     "scope": "chip1 B",
+     "message": "10077 link errors, expected: this lane failed S3",
+     "cause": "",
+     "check": ""
+    }
+   ],
+   "data": {
+    "sample_period": 48000,
+    "seconds": 5.104,
+    "link": {
+     "checks": 10039,
+     "errors": {
+      "chip0 A": 0,
+      "chip0 B": 0,
+      "chip1 A": 10077,
+      "chip1 B": 10077
+     },
+     "last": {
+      "chip0 A": "0x0035",
+      "chip0 B": "0x003a",
+      "chip1 A": "0xffff",
+      "chip1 B": "0xffff"
+     }
+    },
+    "counters": {
+     "FRAMES": 10173,
+     "DGRAMS": 2041,
+     "OVERRUNS": 0,
+     "STALLS": 0,
+     "FIFO_HIGH": 1,
+     "SPI_CYCLES": 361655
+    },
+    "expected_checks": [
+     9007,
+     11230
+    ],
+    "left_running": true
+   },
+   "hard": false
+  }
+ ]
+}

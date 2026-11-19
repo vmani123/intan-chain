@@ -1,0 +1,2190 @@
+{
+ "tool": "chain.bringup",
+ "timestamp": "2026-11-18T18:39:14",
+ "result": "WARN",
+ "port": "/dev/cu.usbserial-210352BF97961",
+ "options": {
+  "serial": "/dev/cu.usbserial-210352BF97961",
+  "baud": 115200,
+  "timeout": 1.0,
+  "spi_div": 3,
+  "phase": null,
+  "rate": 2000.0,
+  "lower": 1.0,
+  "upper": 500.0,
+  "dsp": true,
+  "dsp_cutoff": 1.0,
+  "seconds": 5.0,
+  "snapshots": 5,
+  "skip_loopback": false,
+  "leave_running": true,
+  "resync_settle": 0.05
+ },
+ "chosen": {
+  "spi_div": 3,
+  "phase": 2,
+  "window": [
+   2,
+   2
+  ],
+  "sclk_hz": 6000000.0
+ },
+ "lanes": {
+  "chip0 A": true,
+  "chip0 B": true,
+  "chip1 A": true,
+  "chip1 B": true
+ },
+ "config": {
+  "rate": 2000.0,
+  "spi_div": 3,
+  "upper_requested_hz": 500.0,
+  "upper_actual_hz": 499.9,
+  "lower_requested_hz": 1.0,
+  "lower_actual_hz": 1.0004,
+  "dsp": true,
+  "dsp_n": 8,
+  "dsp_cutoff_hz": 1.2458,
+  "bias_rate": 8163.3,
+  "mux_bias": 18,
+  "adc_buffer_bias": 4,
+  "twos_comp": true,
+  "registers": [
+   "0xde",
+   "0x44",
+   "0x12",
+   "0x02",
+   "0xd8",
+   "0x00",
+   "0x80",
+   "0x00",
+   "0x1e",
+   "0x85",
+   "0x2b",
+   "0x86",
+   "0x2c",
+   "0x86",
+   "0xff",
+   "0xff",
+   "0xff",
+   "0xff",
+   "0xff",
+   "0xff",
+   "0xff",
+   "0xff"
+  ],
+  "warnings": []
+ },
+ "stages": [
+  {
+   "id": "S0",
+   "name": "FPGA",
+   "status": "PASS",
+   "summary": "ID 0x1c100002, 78 taps, emulator yes, SCLK 6.0 MHz",
+   "checked": [
+    "ID == 0x1c100002",
+    "CAPS taps == 78",
+    "SPI_DIV 3 written and read back"
+   ],
+   "findings": [],
+   "data": {
+    "id": "0x1c100002",
+    "caps": {
+     "qspi_div": 6,
+     "emulator": true,
+     "taps": 78,
+     "raw": 5112070
+    }
+   },
+   "hard": false
+  },
+  {
+   "id": "S1",
+   "name": "Self-test",
+   "status": "PASS",
+   "summary": "emulator ROM on 4 lanes, window 2-3",
+   "checked": [
+    "FPGA decode == host decode of the raw taps, every word",
+    "ROM read on all 4 lanes through the on-die emulator"
+   ],
+   "findings": [],
+   "data": {
+    "eye": {
+     "chip0 A": {
+      "matches": [
+       0,
+       0,
+       9,
+       9,
+       8,
+       8,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "total": 9,
+      "windows": [
+       [
+        2,
+        3
+       ]
+      ]
+     },
+     "chip0 B": {
+      "matches": [
+       6,
+       6,
+       7,
+       7,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "total": 7,
+      "windows": [
+       [
+        2,
+        3
+       ]
+      ]
+     },
+     "chip1 A": {
+      "matches": [
+       0,
+       0,
+       9,
+       9,
+       8,
+       8,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "total": 9,
+      "windows": [
+       [
+        2,
+        3
+       ]
+      ]
+     },
+     "chip1 B": {
+      "matches": [
+       6,
+       6,
+       7,
+       7,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "total": 7,
+      "windows": [
+       [
+        2,
+        3
+       ]
+      ]
+     }
+    }
+   },
+   "hard": false
+  },
+  {
+   "id": "S2",
+   "name": "Bus activity",
+   "status": "PASS",
+   "summary": "miso0 toggling, miso1 toggling",
+   "checked": [
+    "SPI_CYCLES advanced by exactly 12",
+    "miso0 toggles (41 edges)",
+    "miso1 toggles (41 edges)"
+   ],
+   "findings": [],
+   "data": {
+    "spi_cycles": {
+     "before": 0,
+     "after": 12,
+     "list": 12
+    },
+    "miso": {
+     "miso0": {
+      "state": "toggling",
+      "seen_low": true,
+      "seen_high": true,
+      "level": 0,
+      "edges": 41
+     },
+     "miso1": {
+      "state": "toggling",
+      "seen_low": true,
+      "seen_high": true,
+      "level": 0,
+      "edges": 41
+     },
+     "loopback": false
+    }
+   },
+   "hard": false
+  },
+  {
+   "id": "S3",
+   "name": "Identity + eye",
+   "status": "WARN",
+   "summary": "SPI_DIV 3, PHASE_SELECT 2 (window 2-2), 4/4 lanes read their ROM",
+   "checked": [
+    "FPGA decode == host decode of the raw taps, every word",
+    "ROM ('INTAN', marker, ID 4) read by the FPGA at PHASE_SELECT 2 on: chip0 A, chip0 B, chip1 A, chip1 B"
+   ],
+   "findings": [
+    {
+     "status": "WARN",
+     "category": "NARROW_WINDOW",
+     "scope": "board",
+     "message": "common window is the single phase 2",
+     "cause": "only one phase reads every lane: the eye is marginal and may close with temperature or a longer cable",
+     "check": "a larger --spi-div widens the window in time"
+    }
+   ],
+   "data": {
+    "attempts": [
+     {
+      "spi_div": 3,
+      "choice": {
+       "phase": 2,
+       "window": [
+        2,
+        2
+       ],
+       "lanes": [
+        "chip0 A",
+        "chip0 B",
+        "chip1 A",
+        "chip1 B"
+       ],
+       "per_lane": {
+        "chip0 A": [
+         [
+          2,
+          3
+         ]
+        ],
+        "chip0 B": [
+         [
+          2,
+          2
+         ]
+        ],
+        "chip1 A": [
+         [
+          2,
+          3
+         ]
+        ],
+        "chip1 B": [
+         [
+          2,
+          2
+         ]
+        ]
+       }
+      },
+      "eye": {
+       "chip0 A": {
+        "matches": [
+         0,
+         0,
+         9,
+         9,
+         8,
+         5,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": [
+         [
+          2,
+          3
+         ]
+        ]
+       },
+       "chip0 B": {
+        "matches": [
+         6,
+         6,
+         7,
+         5,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": [
+         [
+          2,
+          2
+         ]
+        ]
+       },
+       "chip1 A": {
+        "matches": [
+         0,
+         0,
+         9,
+         9,
+         8,
+         5,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": [
+         [
+          2,
+          3
+         ]
+        ]
+       },
+       "chip1 B": {
+        "matches": [
+         6,
+         6,
+         7,
+         5,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": [
+         [
+          2,
+          2
+         ]
+        ]
+       }
+      }
+     },
+     {
+      "spi_div": 1,
+      "choice": {
+       "phase": 3,
+       "window": [
+        3,
+        4
+       ],
+       "lanes": [
+        "chip0 A",
+        "chip1 A"
+       ],
+       "per_lane": {
+        "chip0 A": [
+         [
+          3,
+          4
+         ]
+        ],
+        "chip0 B": [],
+        "chip1 A": [
+         [
+          3,
+          4
+         ]
+        ],
+        "chip1 B": []
+       }
+      },
+      "eye": {
+       "chip0 A": {
+        "matches": [
+         0,
+         0,
+         0,
+         9,
+         9,
+         3,
+         2,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": [
+         [
+          3,
+          4
+         ]
+        ]
+       },
+       "chip0 B": {
+        "matches": [
+         0,
+         6,
+         6,
+         1,
+         1,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": []
+       },
+       "chip1 A": {
+        "matches": [
+         0,
+         0,
+         0,
+         9,
+         9,
+         8,
+         5,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": [
+         [
+          3,
+          4
+         ]
+        ]
+       },
+       "chip1 B": {
+        "matches": [
+         0,
+         6,
+         6,
+         6,
+         5,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": []
+       }
+      }
+     },
+     {
+      "spi_div": 7,
+      "choice": {
+       "phase": 1,
+       "window": [
+        1,
+        1
+       ],
+       "lanes": [
+        "chip0 A",
+        "chip0 B",
+        "chip1 A",
+        "chip1 B"
+       ],
+       "per_lane": {
+        "chip0 A": [
+         [
+          1,
+          2
+         ]
+        ],
+        "chip0 B": [
+         [
+          1,
+          1
+         ]
+        ],
+        "chip1 A": [
+         [
+          1,
+          2
+         ]
+        ],
+        "chip1 B": [
+         [
+          1,
+          1
+         ]
+        ]
+       }
+      },
+      "eye": {
+       "chip0 A": {
+        "matches": [
+         0,
+         9,
+         9,
+         8,
+         5,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": [
+         [
+          1,
+          2
+         ]
+        ]
+       },
+       "chip0 B": {
+        "matches": [
+         6,
+         7,
+         5,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": [
+         [
+          1,
+          1
+         ]
+        ]
+       },
+       "chip1 A": {
+        "matches": [
+         0,
+         9,
+         9,
+         8,
+         5,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": [
+         [
+          1,
+          2
+         ]
+        ]
+       },
+       "chip1 B": {
+        "matches": [
+         6,
+         7,
+         5,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": [
+         [
+          1,
+          1
+         ]
+        ]
+       }
+      }
+     }
+    ],
+    "spi_div": 3,
+    "phase": 2,
+    "window": [
+     2,
+     2
+    ],
+    "lanes_ok": {
+     "chip0 A": true,
+     "chip0 B": true,
+     "chip1 A": true,
+     "chip1 B": true
+    },
+    "die_revision": {
+     "chip0": 2,
+     "chip1": 2
+    }
+   },
+   "hard": false
+  },
+  {
+   "id": "S4",
+   "name": "Configure",
+   "status": "PASS",
+   "summary": "2/2 checked chip(s) configured (upper 499.9 Hz, lower 1.0004 Hz, DSP 1.2458 Hz)",
+   "checked": [
+    "chip 0: 22 echoes (A) and read-back of 0-17 (A), 18-21 (B)",
+    "chip 1: 22 echoes (A) and read-back of 0-17 (A), 18-21 (B)"
+   ],
+   "findings": [],
+   "data": {
+    "config": {
+     "rate": 2000.0,
+     "spi_div": 3,
+     "upper_requested_hz": 500.0,
+     "upper_actual_hz": 499.9,
+     "lower_requested_hz": 1.0,
+     "lower_actual_hz": 1.0004,
+     "dsp": true,
+     "dsp_n": 8,
+     "dsp_cutoff_hz": 1.2458,
+     "bias_rate": 8163.3,
+     "mux_bias": 18,
+     "adc_buffer_bias": 4,
+     "twos_comp": true,
+     "registers": [
+      "0xde",
+      "0x44",
+      "0x12",
+      "0x02",
+      "0xd8",
+      "0x00",
+      "0x80",
+      "0x00",
+      "0x1e",
+      "0x85",
+      "0x2b",
+      "0x86",
+      "0x2c",
+      "0x86",
+      "0xff",
+      "0xff",
+      "0xff",
+      "0xff",
+      "0xff",
+      "0xff",
+      "0xff",
+      "0xff"
+     ],
+     "warnings": []
+    }
+   },
+   "hard": false
+  },
+  {
+   "id": "S5",
+   "name": "Calibrate",
+   "status": "PASS",
+   "summary": "the chip gives no calibration read-back; checked it resumes after",
+   "checked": [
+    "CALIBRATE + 9 dummies sent (well over 100 us after S4: UART round trips take milliseconds)",
+    "chip 0 answers READ(63) = 4 after the window",
+    "chip 1 answers READ(63) = 4 after the window"
+   ],
+   "findings": [],
+   "data": {
+    "chip0_window_answers": [
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000"
+    ],
+    "chip1_window_answers": [
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000",
+     "0x0000"
+    ]
+   },
+   "hard": false
+  },
+  {
+   "id": "S6",
+   "name": "Convert snapshot",
+   "status": "WARN",
+   "summary": "0/128 judged channels unremarkable over 5 snapshots",
+   "checked": [
+    "5 CONVERT sweeps of 128 channels on readable lanes"
+   ],
+   "findings": [
+    {
+     "status": "WARN",
+     "category": "RAILED_CHANNELS",
+     "scope": "channels",
+     "message": "9: 0, 98, 102, 110, 113-115, 125-126",
+     "cause": "these channels sit at the ADC rail: floating inputs, or an electrode offset beyond +-6.4 mV",
+     "check": "electrodes and the reference electrode; normal with nothing attached"
+    },
+    {
+     "status": "WARN",
+     "category": "NOISY_CHANNELS",
+     "scope": "channels",
+     "message": "119: 1-97, 99-101, 103-109, 111-112, 116-124, 127",
+     "cause": "large spread between snapshots: normal for unconnected inputs, which float and pick up mains",
+     "check": "attach electrodes and reference before judging noise"
+    }
+   ],
+   "data": {
+    "channels": [
+     {
+      "ch": 0,
+      "mean_uv": 651.26,
+      "std_uv": 4852.44,
+      "min": -6389.76,
+      "max": 5339.69,
+      "min_lsb": -32768,
+      "max_lsb": 27383,
+      "flag": "R"
+     },
+     {
+      "ch": 1,
+      "mean_uv": 1190.2,
+      "std_uv": 4250.91,
+      "min": -4685.46,
+      "max": 5331.49,
+      "min_lsb": -24028,
+      "max_lsb": 27341,
+      "flag": "N"
+     },
+     {
+      "ch": 2,
+      "mean_uv": 888.11,
+      "std_uv": 3442.87,
+      "min": -4001.6,
+      "max": 4256.07,
+      "min_lsb": -20521,
+      "max_lsb": 21826,
+      "flag": "N"
+     },
+     {
+      "ch": 3,
+      "mean_uv": 1447.13,
+      "std_uv": 4151.9,
+      "min": -4231.11,
+      "max": 5499.78,
+      "min_lsb": -21698,
+      "max_lsb": 28204,
+      "flag": "N"
+     },
+     {
+      "ch": 4,
+      "mean_uv": 1479.5,
+      "std_uv": 4163.43,
+      "min": -4399.98,
+      "max": 5446.35,
+      "min_lsb": -22564,
+      "max_lsb": 27930,
+      "flag": "N"
+     },
+     {
+      "ch": 5,
+      "mean_uv": 376.66,
+      "std_uv": 4158.73,
+      "min": -5452.78,
+      "max": 4501.38,
+      "min_lsb": -27963,
+      "max_lsb": 23084,
+      "flag": "N"
+     },
+     {
+      "ch": 6,
+      "mean_uv": 726.92,
+      "std_uv": 4260.74,
+      "min": -5025.15,
+      "max": 5006.62,
+      "min_lsb": -25770,
+      "max_lsb": 25675,
+      "flag": "N"
+     },
+     {
+      "ch": 7,
+      "mean_uv": 701.88,
+      "std_uv": 4189.34,
+      "min": -5199.48,
+      "max": 4820.2,
+      "min_lsb": -26664,
+      "max_lsb": 24719,
+      "flag": "N"
+     },
+     {
+      "ch": 8,
+      "mean_uv": 940.41,
+      "std_uv": 4420.6,
+      "min": -5222.1,
+      "max": 5178.61,
+      "min_lsb": -26780,
+      "max_lsb": 26557,
+      "flag": "N"
+     },
+     {
+      "ch": 9,
+      "mean_uv": 742.4,
+      "std_uv": 4443.91,
+      "min": -5561.2,
+      "max": 5098.66,
+      "min_lsb": -28519,
+      "max_lsb": 26147,
+      "flag": "N"
+     },
+     {
+      "ch": 10,
+      "mean_uv": 153.43,
+      "std_uv": 4435.49,
+      "min": -6324.24,
+      "max": 4255.29,
+      "min_lsb": -32432,
+      "max_lsb": 21822,
+      "flag": "N"
+     },
+     {
+      "ch": 11,
+      "mean_uv": 873.87,
+      "std_uv": 4362.97,
+      "min": -5280.8,
+      "max": 5098.08,
+      "min_lsb": -27081,
+      "max_lsb": 26144,
+      "flag": "N"
+     },
+     {
+      "ch": 12,
+      "mean_uv": 404.7,
+      "std_uv": 4185.21,
+      "min": -5837.52,
+      "max": 4259.78,
+      "min_lsb": -29936,
+      "max_lsb": 21845,
+      "flag": "N"
+     },
+     {
+      "ch": 13,
+      "mean_uv": 812.88,
+      "std_uv": 4607.39,
+      "min": -6205.1,
+      "max": 5249.6,
+      "min_lsb": -31821,
+      "max_lsb": 26921,
+      "flag": "N"
+     },
+     {
+      "ch": 14,
+      "mean_uv": 661.09,
+      "std_uv": 4714.47,
+      "min": -6243.7,
+      "max": 5406.38,
+      "min_lsb": -32019,
+      "max_lsb": 27725,
+      "flag": "N"
+     },
+     {
+      "ch": 15,
+      "mean_uv": 1334.97,
+      "std_uv": 4195.91,
+      "min": -4735.38,
+      "max": 5363.48,
+      "min_lsb": -24284,
+      "max_lsb": 27505,
+      "flag": "N"
+     },
+     {
+      "ch": 16,
+      "mean_uv": 676.34,
+      "std_uv": 4278.53,
+      "min": -5079.16,
+      "max": 5187.39,
+      "min_lsb": -26047,
+      "max_lsb": 26602,
+      "flag": "N"
+     },
+     {
+      "ch": 17,
+      "mean_uv": 953.12,
+      "std_uv": 4373.9,
+      "min": -5015.99,
+      "max": 5201.24,
+      "min_lsb": -25723,
+      "max_lsb": 26673,
+      "flag": "N"
+     },
+     {
+      "ch": 18,
+      "mean_uv": 622.05,
+      "std_uv": 3679.61,
+      "min": -4311.45,
+      "max": 4287.07,
+      "min_lsb": -22110,
+      "max_lsb": 21985,
+      "flag": "N"
+     },
+     {
+      "ch": 19,
+      "mean_uv": 1019.66,
+      "std_uv": 4424.6,
+      "min": -5141.57,
+      "max": 5354.31,
+      "min_lsb": -26367,
+      "max_lsb": 27458,
+      "flag": "N"
+     },
+     {
+      "ch": 20,
+      "mean_uv": 503.92,
+      "std_uv": 4293.44,
+      "min": -5472.09,
+      "max": 4844.78,
+      "min_lsb": -28062,
+      "max_lsb": 24845,
+      "flag": "N"
+     },
+     {
+      "ch": 21,
+      "mean_uv": 776.06,
+      "std_uv": 4445.76,
+      "min": -5468.39,
+      "max": 5115.24,
+      "min_lsb": -28043,
+      "max_lsb": 26232,
+      "flag": "N"
+     },
+     {
+      "ch": 22,
+      "mean_uv": 699.66,
+      "std_uv": 4484.17,
+      "min": -5716.43,
+      "max": 5102.18,
+      "min_lsb": -29315,
+      "max_lsb": 26165,
+      "flag": "N"
+     },
+     {
+      "ch": 23,
+      "mean_uv": 829.37,
+      "std_uv": 4417.14,
+      "min": -5451.81,
+      "max": 5120.7,
+      "min_lsb": -27958,
+      "max_lsb": 26260,
+      "flag": "N"
+     },
+     {
+      "ch": 24,
+      "mean_uv": 704.77,
+      "std_uv": 4361.68,
+      "min": -5443.62,
+      "max": 5007.4,
+      "min_lsb": -27916,
+      "max_lsb": 25679,
+      "flag": "N"
+     },
+     {
+      "ch": 25,
+      "mean_uv": 853.01,
+      "std_uv": 4426.84,
+      "min": -5580.9,
+      "max": 5152.88,
+      "min_lsb": -28620,
+      "max_lsb": 26425,
+      "flag": "N"
+     },
+     {
+      "ch": 26,
+      "mean_uv": 845.4,
+      "std_uv": 4645.47,
+      "min": -5834.79,
+      "max": 5278.07,
+      "min_lsb": -29922,
+      "max_lsb": 27067,
+      "flag": "N"
+     },
+     {
+      "ch": 27,
+      "mean_uv": 900.24,
+      "std_uv": 4451.64,
+      "min": -5752.89,
+      "max": 5257.2,
+      "min_lsb": -29502,
+      "max_lsb": 26960,
+      "flag": "N"
+     },
+     {
+      "ch": 28,
+      "mean_uv": 785.34,
+      "std_uv": 4653.89,
+      "min": -5807.3,
+      "max": 5384.73,
+      "min_lsb": -29781,
+      "max_lsb": 27614,
+      "flag": "N"
+     },
+     {
+      "ch": 29,
+      "mean_uv": -62.52,
+      "std_uv": 4605.91,
+      "min": -6122.03,
+      "max": 4824.69,
+      "min_lsb": -31395,
+      "max_lsb": 24742,
+      "flag": "N"
+     },
+     {
+      "ch": 30,
+      "mean_uv": 583.13,
+      "std_uv": 4379.31,
+      "min": -5409.11,
+      "max": 5172.96,
+      "min_lsb": -27739,
+      "max_lsb": 26528,
+      "flag": "N"
+     },
+     {
+      "ch": 31,
+      "mean_uv": 824.58,
+      "std_uv": 4364.54,
+      "min": -5320.77,
+      "max": 5202.8,
+      "min_lsb": -27286,
+      "max_lsb": 26681,
+      "flag": "N"
+     },
+     {
+      "ch": 32,
+      "mean_uv": 917.24,
+      "std_uv": 4277.75,
+      "min": -4981.86,
+      "max": 5253.3,
+      "min_lsb": -25548,
+      "max_lsb": 26940,
+      "flag": "N"
+     },
+     {
+      "ch": 33,
+      "mean_uv": 700.75,
+      "std_uv": 4466.32,
+      "min": -5387.85,
+      "max": 5212.74,
+      "min_lsb": -27630,
+      "max_lsb": 26732,
+      "flag": "N"
+     },
+     {
+      "ch": 34,
+      "mean_uv": 568.66,
+      "std_uv": 4540.32,
+      "min": -5798.52,
+      "max": 5038.99,
+      "min_lsb": -29736,
+      "max_lsb": 25841,
+      "flag": "N"
+     },
+     {
+      "ch": 35,
+      "mean_uv": 545.65,
+      "std_uv": 3806.08,
+      "min": -4811.04,
+      "max": 4235.99,
+      "min_lsb": -24672,
+      "max_lsb": 21723,
+      "flag": "N"
+     },
+     {
+      "ch": 36,
+      "mean_uv": 1509.14,
+      "std_uv": 4117.43,
+      "min": -4212.59,
+      "max": 5315.7,
+      "min_lsb": -21603,
+      "max_lsb": 27260,
+      "flag": "N"
+     },
+     {
+      "ch": 37,
+      "mean_uv": 709.41,
+      "std_uv": 3541.74,
+      "min": -4254.12,
+      "max": 4119.96,
+      "min_lsb": -21816,
+      "max_lsb": 21128,
+      "flag": "N"
+     },
+     {
+      "ch": 38,
+      "mean_uv": 947.74,
+      "std_uv": 4519.57,
+      "min": -5153.07,
+      "max": 5437.57,
+      "min_lsb": -26426,
+      "max_lsb": 27885,
+      "flag": "N"
+     },
+     {
+      "ch": 39,
+      "mean_uv": 730.04,
+      "std_uv": 4646.79,
+      "min": -6107.99,
+      "max": 5324.48,
+      "min_lsb": -31323,
+      "max_lsb": 27305,
+      "flag": "N"
+     },
+     {
+      "ch": 40,
+      "mean_uv": 1092.39,
+      "std_uv": 4389.12,
+      "min": -5284.11,
+      "max": 5241.02,
+      "min_lsb": -27098,
+      "max_lsb": 26877,
+      "flag": "N"
+     },
+     {
+      "ch": 41,
+      "mean_uv": 661.79,
+      "std_uv": 4709.42,
+      "min": -6128.07,
+      "max": 5362.31,
+      "min_lsb": -31426,
+      "max_lsb": 27499,
+      "flag": "N"
+     },
+     {
+      "ch": 42,
+      "mean_uv": 992.94,
+      "std_uv": 3882.55,
+      "min": -4461.6,
+      "max": 4941.49,
+      "min_lsb": -22880,
+      "max_lsb": 25341,
+      "flag": "N"
+     },
+     {
+      "ch": 43,
+      "mean_uv": 577.78,
+      "std_uv": 3992.68,
+      "min": -5122.07,
+      "max": 4358.06,
+      "min_lsb": -26267,
+      "max_lsb": 22349,
+      "flag": "N"
+     },
+     {
+      "ch": 44,
+      "mean_uv": 630.44,
+      "std_uv": 3634.62,
+      "min": -4586.79,
+      "max": 4134.59,
+      "min_lsb": -23522,
+      "max_lsb": 21203,
+      "flag": "N"
+     },
+     {
+      "ch": 45,
+      "mean_uv": 644.71,
+      "std_uv": 4528.4,
+      "min": -5496.47,
+      "max": 5133.18,
+      "min_lsb": -28187,
+      "max_lsb": 26324,
+      "flag": "N"
+     },
+     {
+      "ch": 46,
+      "mean_uv": 1458.02,
+      "std_uv": 4216.81,
+      "min": -4660.11,
+      "max": 5514.21,
+      "min_lsb": -23898,
+      "max_lsb": 28278,
+      "flag": "N"
+     },
+     {
+      "ch": 47,
+      "mean_uv": 745.6,
+      "std_uv": 4468.63,
+      "min": -5643.69,
+      "max": 5054.01,
+      "min_lsb": -28942,
+      "max_lsb": 25918,
+      "flag": "N"
+     },
+     {
+      "ch": 48,
+      "mean_uv": 1081.47,
+      "std_uv": 4323.64,
+      "min": -5090.86,
+      "max": 5265.59,
+      "min_lsb": -26107,
+      "max_lsb": 27003,
+      "flag": "N"
+     },
+     {
+      "ch": 49,
+      "mean_uv": 703.64,
+      "std_uv": 4409.49,
+      "min": -5291.72,
+      "max": 5220.54,
+      "min_lsb": -27137,
+      "max_lsb": 26772,
+      "flag": "N"
+     },
+     {
+      "ch": 50,
+      "mean_uv": 752.5,
+      "std_uv": 4519.6,
+      "min": -5496.86,
+      "max": 5188.17,
+      "min_lsb": -28189,
+      "max_lsb": 26606,
+      "flag": "N"
+     },
+     {
+      "ch": 51,
+      "mean_uv": 799.15,
+      "std_uv": 4471.95,
+      "min": -5735.15,
+      "max": 5167.5,
+      "min_lsb": -29411,
+      "max_lsb": 26500,
+      "flag": "N"
+     },
+     {
+      "ch": 52,
+      "mean_uv": 965.45,
+      "std_uv": 4442.88,
+      "min": -4790.18,
+      "max": 5430.95,
+      "min_lsb": -24565,
+      "max_lsb": 27851,
+      "flag": "N"
+     },
+     {
+      "ch": 53,
+      "mean_uv": 826.72,
+      "std_uv": 4510.54,
+      "min": -6005.61,
+      "max": 5216.06,
+      "min_lsb": -30798,
+      "max_lsb": 26749,
+      "flag": "N"
+     },
+     {
+      "ch": 54,
+      "mean_uv": 978.47,
+      "std_uv": 4338.07,
+      "min": -5623.61,
+      "max": 5100.23,
+      "min_lsb": -28839,
+      "max_lsb": 26155,
+      "flag": "N"
+     },
+     {
+      "ch": 55,
+      "mean_uv": 1235.01,
+      "std_uv": 3954.54,
+      "min": -4658.36,
+      "max": 4885.14,
+      "min_lsb": -23889,
+      "max_lsb": 25052,
+      "flag": "N"
+     },
+     {
+      "ch": 56,
+      "mean_uv": 929.06,
+      "std_uv": 4089.81,
+      "min": -5247.65,
+      "max": 4712.95,
+      "min_lsb": -26911,
+      "max_lsb": 24169,
+      "flag": "N"
+     },
+     {
+      "ch": 57,
+      "mean_uv": 1405.25,
+      "std_uv": 4281.79,
+      "min": -4619.36,
+      "max": 5548.92,
+      "min_lsb": -23689,
+      "max_lsb": 28456,
+      "flag": "N"
+     },
+     {
+      "ch": 58,
+      "mean_uv": 1608.2,
+      "std_uv": 4382.78,
+      "min": -4669.08,
+      "max": 5701.61,
+      "min_lsb": -23944,
+      "max_lsb": 29239,
+      "flag": "N"
+     },
+     {
+      "ch": 59,
+      "mean_uv": 1092.78,
+      "std_uv": 3656.2,
+      "min": -4233.65,
+      "max": 4619.16,
+      "min_lsb": -21711,
+      "max_lsb": 23688,
+      "flag": "N"
+     },
+     {
+      "ch": 60,
+      "mean_uv": 921.84,
+      "std_uv": 4456.61,
+      "min": -5268.7,
+      "max": 5393.51,
+      "min_lsb": -27019,
+      "max_lsb": 27659,
+      "flag": "N"
+     },
+     {
+      "ch": 61,
+      "mean_uv": 660.97,
+      "std_uv": 4458.96,
+      "min": -5884.91,
+      "max": 5239.65,
+      "min_lsb": -30179,
+      "max_lsb": 26870,
+      "flag": "N"
+     },
+     {
+      "ch": 62,
+      "mean_uv": 1014.7,
+      "std_uv": 4372.74,
+      "min": -5325.45,
+      "max": 5404.23,
+      "min_lsb": -27310,
+      "max_lsb": 27714,
+      "flag": "N"
+     },
+     {
+      "ch": 63,
+      "mean_uv": 987.64,
+      "std_uv": 4292.61,
+      "min": -5352.95,
+      "max": 5182.9,
+      "min_lsb": -27451,
+      "max_lsb": 26579,
+      "flag": "N"
+     },
+     {
+      "ch": 64,
+      "mean_uv": 1055.69,
+      "std_uv": 4383.17,
+      "min": -5614.05,
+      "max": 5164.38,
+      "min_lsb": -28790,
+      "max_lsb": 26484,
+      "flag": "N"
+     },
+     {
+      "ch": 65,
+      "mean_uv": 779.77,
+      "std_uv": 4497.87,
+      "min": -5670.02,
+      "max": 5137.47,
+      "min_lsb": -29077,
+      "max_lsb": 26346,
+      "flag": "N"
+     },
+     {
+      "ch": 66,
+      "mean_uv": 1134.63,
+      "std_uv": 4284.56,
+      "min": -4839.51,
+      "max": 5494.71,
+      "min_lsb": -24818,
+      "max_lsb": 28178,
+      "flag": "N"
+     },
+     {
+      "ch": 67,
+      "mean_uv": 1428.69,
+      "std_uv": 3940.37,
+      "min": -4357.28,
+      "max": 5534.3,
+      "min_lsb": -22345,
+      "max_lsb": 28381,
+      "flag": "N"
+     },
+     {
+      "ch": 68,
+      "mean_uv": 2715.14,
+      "std_uv": 2209.17,
+      "min": 343.98,
+      "max": 5764.78,
+      "min_lsb": 1764,
+      "max_lsb": 29563,
+      "flag": "N"
+     },
+     {
+      "ch": 69,
+      "mean_uv": 1080.34,
+      "std_uv": 4104.38,
+      "min": -4337.78,
+      "max": 5038.41,
+      "min_lsb": -22245,
+      "max_lsb": 25838,
+      "flag": "N"
+     },
+     {
+      "ch": 70,
+      "mean_uv": 1297.92,
+      "std_uv": 4186.25,
+      "min": -4668.49,
+      "max": 5433.87,
+      "min_lsb": -23941,
+      "max_lsb": 27866,
+      "flag": "N"
+     },
+     {
+      "ch": 71,
+      "mean_uv": 2245.31,
+      "std_uv": 2561.74,
+      "min": -952.77,
+      "max": 4852.57,
+      "min_lsb": -4886,
+      "max_lsb": 24885,
+      "flag": "N"
+     },
+     {
+      "ch": 72,
+      "mean_uv": 1164.03,
+      "std_uv": 4157.83,
+      "min": -4659.91,
+      "max": 5389.99,
+      "min_lsb": -23897,
+      "max_lsb": 27641,
+      "flag": "N"
+     },
+     {
+      "ch": 73,
+      "mean_uv": 1060.45,
+      "std_uv": 4335.08,
+      "min": -5045.62,
+      "max": 5515.57,
+      "min_lsb": -25875,
+      "max_lsb": 28285,
+      "flag": "N"
+     },
+     {
+      "ch": 74,
+      "mean_uv": 1225.19,
+      "std_uv": 4329.85,
+      "min": -5216.25,
+      "max": 5495.49,
+      "min_lsb": -26750,
+      "max_lsb": 28182,
+      "flag": "N"
+     },
+     {
+      "ch": 75,
+      "mean_uv": 976.56,
+      "std_uv": 4436.19,
+      "min": -5709.21,
+      "max": 5299.12,
+      "min_lsb": -29278,
+      "max_lsb": 27175,
+      "flag": "N"
+     },
+     {
+      "ch": 76,
+      "mean_uv": 929.1,
+      "std_uv": 4421.04,
+      "min": -5600.01,
+      "max": 5203.97,
+      "min_lsb": -28718,
+      "max_lsb": 26687,
+      "flag": "N"
+     },
+     {
+      "ch": 77,
+      "mean_uv": 1007.92,
+      "std_uv": 4579.1,
+      "min": -6039.35,
+      "max": 5348.27,
+      "min_lsb": -30971,
+      "max_lsb": 27427,
+      "flag": "N"
+     },
+     {
+      "ch": 78,
+      "mean_uv": 1254.2,
+      "std_uv": 4576.5,
+      "min": -5641.15,
+      "max": 5518.89,
+      "min_lsb": -28929,
+      "max_lsb": 28302,
+      "flag": "N"
+     },
+     {
+      "ch": 79,
+      "mean_uv": 860.34,
+      "std_uv": 4939.69,
+      "min": -5989.23,
+      "max": 5888.22,
+      "min_lsb": -30714,
+      "max_lsb": 30196,
+      "flag": "N"
+     },
+     {
+      "ch": 80,
+      "mean_uv": 1358.45,
+      "std_uv": 4362.15,
+      "min": -5036.46,
+      "max": 5567.84,
+      "min_lsb": -25828,
+      "max_lsb": 28553,
+      "flag": "N"
+     },
+     {
+      "ch": 81,
+      "mean_uv": 1234.19,
+      "std_uv": 4398.48,
+      "min": -5221.32,
+      "max": 5471.7,
+      "min_lsb": -26776,
+      "max_lsb": 28060,
+      "flag": "N"
+     },
+     {
+      "ch": 82,
+      "mean_uv": 1072.11,
+      "std_uv": 4464.06,
+      "min": -5437.38,
+      "max": 5374.98,
+      "min_lsb": -27884,
+      "max_lsb": 27564,
+      "flag": "N"
+     },
+     {
+      "ch": 83,
+      "mean_uv": 972.04,
+      "std_uv": 4401.97,
+      "min": -5555.36,
+      "max": 5218.2,
+      "min_lsb": -28489,
+      "max_lsb": 26760,
+      "flag": "N"
+     },
+     {
+      "ch": 84,
+      "mean_uv": 738.27,
+      "std_uv": 3305.42,
+      "min": -3483.87,
+      "max": 4467.06,
+      "min_lsb": -17866,
+      "max_lsb": 22908,
+      "flag": "N"
+     },
+     {
+      "ch": 85,
+      "mean_uv": 988.3,
+      "std_uv": 4406.99,
+      "min": -5229.51,
+      "max": 5483.79,
+      "min_lsb": -26818,
+      "max_lsb": 28122,
+      "flag": "N"
+     },
+     {
+      "ch": 86,
+      "mean_uv": 1344.92,
+      "std_uv": 4315.68,
+      "min": -5283.14,
+      "max": 5309.27,
+      "min_lsb": -27093,
+      "max_lsb": 27227,
+      "flag": "N"
+     },
+     {
+      "ch": 87,
+      "mean_uv": 916.15,
+      "std_uv": 4585.51,
+      "min": -5800.47,
+      "max": 5347.29,
+      "min_lsb": -29746,
+      "max_lsb": 27422,
+      "flag": "N"
+     },
+     {
+      "ch": 88,
+      "mean_uv": 912.29,
+      "std_uv": 4422.42,
+      "min": -5673.91,
+      "max": 5176.86,
+      "min_lsb": -29097,
+      "max_lsb": 26548,
+      "flag": "N"
+     },
+     {
+      "ch": 89,
+      "mean_uv": 786.94,
+      "std_uv": 4434.44,
+      "min": -5932.68,
+      "max": 5007.21,
+      "min_lsb": -30424,
+      "max_lsb": 25678,
+      "flag": "N"
+     },
+     {
+      "ch": 90,
+      "mean_uv": 835.58,
+      "std_uv": 4396.86,
+      "min": -5824.85,
+      "max": 4986.35,
+      "min_lsb": -29871,
+      "max_lsb": 25571,
+      "flag": "N"
+     },
+     {
+      "ch": 91,
+      "mean_uv": 1290.9,
+      "std_uv": 4455.16,
+      "min": -5909.67,
+      "max": 5195.97,
+      "min_lsb": -30306,
+      "max_lsb": 26646,
+      "flag": "N"
+     },
+     {
+      "ch": 92,
+      "mean_uv": 894.82,
+      "std_uv": 4530.7,
+      "min": -5943.02,
+      "max": 5304.78,
+      "min_lsb": -30477,
+      "max_lsb": 27204,
+      "flag": "N"
+     },
+     {
+      "ch": 93,
+      "mean_uv": 798.41,
+      "std_uv": 4409.28,
+      "min": -5339.1,
+      "max": 5411.45,
+      "min_lsb": -27380,
+      "max_lsb": 27751,
+      "flag": "N"
+     },
+     {
+      "ch": 94,
+      "mean_uv": 889.71,
+      "std_uv": 4457.53,
+      "min": -5692.05,
+      "max": 5295.61,
+      "min_lsb": -29190,
+      "max_lsb": 27157,
+      "flag": "N"
+     },
+     {
+      "ch": 95,
+      "mean_uv": 982.76,
+      "std_uv": 4501.84,
+      "min": -5262.07,
+      "max": 5566.66,
+      "min_lsb": -26985,
+      "max_lsb": 28547,
+      "flag": "N"
+     },
+     {
+      "ch": 96,
+      "mean_uv": 1016.42,
+      "std_uv": 4319.62,
+      "min": -5473.07,
+      "max": 5157.56,
+      "min_lsb": -28067,
+      "max_lsb": 26449,
+      "flag": "N"
+     },
+     {
+      "ch": 97,
+      "mean_uv": 1312.08,
+      "std_uv": 4029.59,
+      "min": -4588.55,
+      "max": 5073.9,
+      "min_lsb": -23531,
+      "max_lsb": 26020,
+      "flag": "N"
+     },
+     {
+      "ch": 98,
+      "mean_uv": 707.54,
+      "std_uv": 4751.41,
+      "min": -6389.76,
+      "max": 5302.24,
+      "min_lsb": -32768,
+      "max_lsb": 27191,
+      "flag": "R"
+     },
+     {
+      "ch": 99,
+      "mean_uv": 954.41,
+      "std_uv": 4413.7,
+      "min": -5634.33,
+      "max": 5288.99,
+      "min_lsb": -28894,
+      "max_lsb": 27123,
+      "flag": "N"
+     },
+     {
+      "ch": 100,
+      "mean_uv": 750.94,
+      "std_uv": 4618.35,
+      "min": -5425.88,
+      "max": 5413.01,
+      "min_lsb": -27825,
+      "max_lsb": 27759,
+      "flag": "N"
+     },
+     {
+      "ch": 101,
+      "mean_uv": 816.66,
+      "std_uv": 4503.14,
+      "min": -5092.23,
+      "max": 5283.14,
+      "min_lsb": -26114,
+      "max_lsb": 27093,
+      "flag": "N"
+     },
+     {
+      "ch": 102,
+      "mean_uv": 446.67,
+      "std_uv": 4757.92,
+      "min": -6389.76,
+      "max": 5084.82,
+      "min_lsb": -32768,
+      "max_lsb": 26076,
+      "flag": "R"
+     },
+     {
+      "ch": 103,
+      "mean_uv": 747.2,
+      "std_uv": 4587.68,
+      "min": -5640.38,
+      "max": 5419.24,
+      "min_lsb": -28925,
+      "max_lsb": 27791,
+      "flag": "N"
+     },
+     {
+      "ch": 104,
+      "mean_uv": 841.35,
+      "std_uv": 4446.55,
+      "min": -5731.64,
+      "max": 5177.25,
+      "min_lsb": -29393,
+      "max_lsb": 26550,
+      "flag": "N"
+     },
+     {
+      "ch": 105,
+      "mean_uv": 746.97,
+      "std_uv": 4627.58,
+      "min": -5361.91,
+      "max": 5618.53,
+      "min_lsb": -27497,
+      "max_lsb": 28813,
+      "flag": "N"
+     },
+     {
+      "ch": 106,
+      "mean_uv": 829.73,
+      "std_uv": 4394.88,
+      "min": -5250.38,
+      "max": 5484.96,
+      "min_lsb": -26925,
+      "max_lsb": 28128,
+      "flag": "N"
+     },
+     {
+      "ch": 107,
+      "mean_uv": 1259.47,
+      "std_uv": 4211.49,
+      "min": -5099.06,
+      "max": 5163.4,
+      "min_lsb": -26149,
+      "max_lsb": 26479,
+      "flag": "N"
+     },
+     {
+      "ch": 108,
+      "mean_uv": 593.58,
+      "std_uv": 4643.7,
+      "min": -6149.32,
+      "max": 5349.24,
+      "min_lsb": -31535,
+      "max_lsb": 27432,
+      "flag": "N"
+     },
+     {
+      "ch": 109,
+      "mean_uv": 844.7,
+      "std_uv": 4430.13,
+      "min": -5416.9,
+      "max": 5431.53,
+      "min_lsb": -27779,
+      "max_lsb": 27854,
+      "flag": "N"
+     },
+     {
+      "ch": 110,
+      "mean_uv": -10.18,
+      "std_uv": 4645.11,
+      "min": -6389.76,
+      "max": 4866.42,
+      "min_lsb": -32768,
+      "max_lsb": 24956,
+      "flag": "R"
+     },
+     {
+      "ch": 111,
+      "mean_uv": 783.86,
+      "std_uv": 4332.45,
+      "min": -5132.01,
+      "max": 5452.01,
+      "min_lsb": -26318,
+      "max_lsb": 27959,
+      "flag": "N"
+     },
+     {
+      "ch": 112,
+      "mean_uv": 735.93,
+      "std_uv": 4433.2,
+      "min": -5252.52,
+      "max": 5499.39,
+      "min_lsb": -26936,
+      "max_lsb": 28202,
+      "flag": "N"
+     },
+     {
+      "ch": 113,
+      "mean_uv": 347.92,
+      "std_uv": 4926.18,
+      "min": -6389.76,
+      "max": 5420.22,
+      "min_lsb": -32768,
+      "max_lsb": 27796,
+      "flag": "R"
+     },
+     {
+      "ch": 114,
+      "mean_uv": 508.83,
+      "std_uv": 4982.39,
+      "min": -6383.72,
+      "max": 5646.03,
+      "min_lsb": -32737,
+      "max_lsb": 28954,
+      "flag": "R"
+     },
+     {
+      "ch": 115,
+      "mean_uv": 397.41,
+      "std_uv": 4692.82,
+      "min": -6389.76,
+      "max": 5198.11,
+      "min_lsb": -32768,
+      "max_lsb": 26657,
+      "flag": "R"
+     },
+     {
+      "ch": 116,
+      "mean_uv": 626.69,
+      "std_uv": 4711.65,
+      "min": -5686.4,
+      "max": 5470.73,
+      "min_lsb": -29161,
+      "max_lsb": 28055,
+      "flag": "N"
+     },
+     {
+      "ch": 117,
+      "mean_uv": 98.44,
+      "std_uv": 4451.12,
+      "min": -6120.07,
+      "max": 4648.8,
+      "min_lsb": -31385,
+      "max_lsb": 23840,
+      "flag": "N"
+     },
+     {
+      "ch": 118,
+      "mean_uv": 172.96,
+      "std_uv": 4183.21,
+      "min": -5600.6,
+      "max": 4788.42,
+      "min_lsb": -28721,
+      "max_lsb": 24556,
+      "flag": "N"
+     },
+     {
+      "ch": 119,
+      "mean_uv": 476.58,
+      "std_uv": 4717.26,
+      "min": -6140.16,
+      "max": 5151.7,
+      "min_lsb": -31488,
+      "max_lsb": 26419,
+      "flag": "N"
+     },
+     {
+      "ch": 120,
+      "mean_uv": 796.38,
+      "std_uv": 4559.25,
+      "min": -6160.44,
+      "max": 5287.43,
+      "min_lsb": -31592,
+      "max_lsb": 27115,
+      "flag": "N"
+     },
+     {
+      "ch": 121,
+      "mean_uv": 376.12,
+      "std_uv": 4440.98,
+      "min": -5875.55,
+      "max": 5075.46,
+      "min_lsb": -30131,
+      "max_lsb": 26028,
+      "flag": "N"
+     },
+     {
+      "ch": 122,
+      "mean_uv": 704.69,
+      "std_uv": 4650.08,
+      "min": -6081.66,
+      "max": 5066.1,
+      "min_lsb": -31188,
+      "max_lsb": 25980,
+      "flag": "N"
+     },
+     {
+      "ch": 123,
+      "mean_uv": 407.28,
+      "std_uv": 4729.4,
+      "min": -6338.09,
+      "max": 5182.52,
+      "min_lsb": -32503,
+      "max_lsb": 26577,
+      "flag": "N"
+     },
+     {
+      "ch": 124,
+      "mean_uv": 755.51,
+      "std_uv": 4558.16,
+      "min": -5821.53,
+      "max": 5223.27,
+      "min_lsb": -29854,
+      "max_lsb": 26786,
+      "flag": "N"
+     },
+     {
+      "ch": 125,
+      "mean_uv": -155.53,
+      "std_uv": 4531.26,
+      "min": -6389.76,
+      "max": 4599.66,
+      "min_lsb": -32768,
+      "max_lsb": 23588,
+      "flag": "R"
+     },
+     {
+      "ch": 126,
+      "mean_uv": 686.95,
+      "std_uv": 4653.74,
+      "min": -6382.16,
+      "max": 5324.86,
+      "min_lsb": -32729,
+      "max_lsb": 27307,
+      "flag": "R"
+     },
+     {
+      "ch": 127,
+      "mean_uv": 852.54,
+      "std_uv": 4461.89,
+      "min": -4963.34,
+      "max": 5393.7,
+      "min_lsb": -25453,
+      "max_lsb": 27660,
+      "flag": "N"
+     }
+    ]
+   },
+   "hard": false
+  },
+  {
+   "id": "S7",
+   "name": "Streaming",
+   "status": "PASS",
+   "summary": "10032 sweeps at 2000 S/s, 0 lane(s) with link errors, left running",
+   "checked": [
+    "LINK_CHECKS 10032 = rate x time",
+    "chip0 A: 0 link errors",
+    "chip0 B: 0 link errors",
+    "chip1 A: 0 link errors",
+    "chip1 B: 0 link errors",
+    "FRAMES 10168",
+    "ESP draining QSPI: DGRAMS 2039"
+   ],
+   "findings": [],
+   "data": {
+    "sample_period": 48000,
+    "seconds": 5.104,
+    "link": {
+     "checks": 10032,
+     "errors": {
+      "chip0 A": 0,
+      "chip0 B": 0,
+      "chip1 A": 0,
+      "chip1 B": 0
+     },
+     "last": {
+      "chip0 A": "0x0035",
+      "chip0 B": "0x003a",
+      "chip1 A": "0x0035",
+      "chip1 B": "0x003a"
+     }
+    },
+    "counters": {
+     "FRAMES": 10168,
+     "DGRAMS": 2039,
+     "OVERRUNS": 0,
+     "STALLS": 0,
+     "FIFO_HIGH": 1,
+     "SPI_CYCLES": 361457
+    },
+    "expected_checks": [
+     9005,
+     11231
+    ],
+    "left_running": true
+   },
+   "hard": false
+  }
+ ]
+}

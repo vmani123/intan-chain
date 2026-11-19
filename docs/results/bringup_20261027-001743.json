@@ -1,0 +1,501 @@
+{
+ "tool": "chain.bringup",
+ "timestamp": "2026-10-27T00:17:43",
+ "result": "FAIL",
+ "port": "/dev/cu.usbserial-210352BF97961",
+ "options": {
+  "serial": "/dev/cu.usbserial-210352BF97961",
+  "baud": 115200,
+  "timeout": 1.0,
+  "spi_div": 1,
+  "phase": null,
+  "rate": 2000.0,
+  "lower": 1.0,
+  "upper": 500.0,
+  "dsp": true,
+  "dsp_cutoff": 1.0,
+  "seconds": 2.0,
+  "snapshots": 20,
+  "skip_loopback": true,
+  "leave_running": false,
+  "resync_settle": 0.05
+ },
+ "chosen": {
+  "spi_div": 1,
+  "phase": null,
+  "window": null,
+  "sclk_hz": 12000000.0
+ },
+ "lanes": {
+  "chip0 A": false,
+  "chip0 B": false,
+  "chip1 A": false,
+  "chip1 B": false
+ },
+ "config": null,
+ "stages": [
+  {
+   "id": "S0",
+   "name": "FPGA",
+   "status": "PASS",
+   "summary": "ID 0x1c100002, 78 taps, emulator yes, SCLK 12.0 MHz",
+   "checked": [
+    "ID == 0x1c100002",
+    "CAPS taps == 78",
+    "SPI_DIV 1 written and read back"
+   ],
+   "findings": [],
+   "data": {
+    "id": "0x1c100002",
+    "caps": {
+     "qspi_div": 6,
+     "emulator": true,
+     "taps": 78,
+     "raw": 5112070
+    }
+   },
+   "hard": false
+  },
+  {
+   "id": "S1",
+   "name": "Self-test",
+   "status": "SKIP",
+   "summary": "--skip-loopback",
+   "checked": [],
+   "findings": [],
+   "data": {},
+   "hard": false
+  },
+  {
+   "id": "S2",
+   "name": "Bus activity",
+   "status": "PASS",
+   "summary": "miso0 toggling, miso1 toggling",
+   "checked": [
+    "SPI_CYCLES advanced by exactly 12",
+    "miso0 toggles (145 edges)",
+    "miso1 toggles (96 edges)"
+   ],
+   "findings": [],
+   "data": {
+    "spi_cycles": {
+     "before": 0,
+     "after": 12,
+     "list": 12
+    },
+    "miso": {
+     "miso0": {
+      "state": "toggling",
+      "seen_low": true,
+      "seen_high": true,
+      "level": 1,
+      "edges": 145
+     },
+     "miso1": {
+      "state": "toggling",
+      "seen_low": true,
+      "seen_high": true,
+      "level": 0,
+      "edges": 96
+     },
+     "loopback": false
+    }
+   },
+   "hard": false
+  },
+  {
+   "id": "S3",
+   "name": "Identity + eye",
+   "status": "FAIL",
+   "summary": "no lane reads its ROM: nothing to configure",
+   "checked": [
+    "FPGA decode == host decode of the raw taps, every word"
+   ],
+   "findings": [
+    {
+     "status": "FAIL",
+     "category": "MOSI_IGNORED",
+     "scope": "both chips",
+     "message": "same waveform for READ(40), READ(62) and CONVERT(0), on both chips",
+     "cause": "both chips clock data out on SCLK and react to CS, but answer READ(40), READ(62) and CONVERT(0) with the same waveform: the commands never arrive, so MOSI is stuck at the chip",
+     "check": "JA3 to the converter's MOSI input; the converter's MOSI driver channel (its input pin and enable); the MOSI pair to the headstage at both ends (shared by both chips, so the fault is before the pair splits)"
+    }
+   ],
+   "data": {
+    "attempts": [
+     {
+      "spi_div": 1,
+      "choice": {
+       "phase": null,
+       "window": null,
+       "lanes": [],
+       "per_lane": {
+        "chip0 A": [],
+        "chip0 B": [],
+        "chip1 A": [],
+        "chip1 B": []
+       }
+      },
+      "eye": {
+       "chip0 A": {
+        "matches": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": []
+       },
+       "chip0 B": {
+        "matches": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": []
+       },
+       "chip1 A": {
+        "matches": [
+         0,
+         1,
+         1,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": []
+       },
+       "chip1 B": {
+        "matches": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": []
+       }
+      }
+     },
+     {
+      "spi_div": 3,
+      "choice": {
+       "phase": null,
+       "window": null,
+       "lanes": [],
+       "per_lane": {
+        "chip0 A": [],
+        "chip0 B": [],
+        "chip1 A": [],
+        "chip1 B": []
+       }
+      },
+      "eye": {
+       "chip0 A": {
+        "matches": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": []
+       },
+       "chip0 B": {
+        "matches": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": []
+       },
+       "chip1 A": {
+        "matches": [
+         1,
+         1,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": []
+       },
+       "chip1 B": {
+        "matches": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": []
+       }
+      }
+     },
+     {
+      "spi_div": 7,
+      "choice": {
+       "phase": null,
+       "window": null,
+       "lanes": [],
+       "per_lane": {
+        "chip0 A": [],
+        "chip0 B": [],
+        "chip1 A": [],
+        "chip1 B": []
+       }
+      },
+      "eye": {
+       "chip0 A": {
+        "matches": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": []
+       },
+       "chip0 B": {
+        "matches": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": []
+       },
+       "chip1 A": {
+        "matches": [
+         1,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 9,
+        "windows": []
+       },
+       "chip1 B": {
+        "matches": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "total": 7,
+        "windows": []
+       }
+      }
+     }
+    ],
+    "command_response": {
+     "chip0": {
+      "chip": 0,
+      "same_read": 1.0,
+      "diff_read": 1.0,
+      "convert_read": 1.0,
+      "convert_is_id": false,
+      "verdict": "ignores commands"
+     },
+     "chip1": {
+      "chip": 1,
+      "same_read": 1.0,
+      "diff_read": 1.0,
+      "convert_read": 1.0,
+      "convert_is_id": false,
+      "verdict": "ignores commands"
+     }
+    }
+   },
+   "hard": true
+  },
+  {
+   "id": "S4",
+   "name": "Configure",
+   "status": "SKIP",
+   "summary": "not run: S3 failed",
+   "checked": [],
+   "findings": [],
+   "data": {},
+   "hard": false
+  },
+  {
+   "id": "S5",
+   "name": "Calibrate",
+   "status": "SKIP",
+   "summary": "not run: S3 failed",
+   "checked": [],
+   "findings": [],
+   "data": {},
+   "hard": false
+  },
+  {
+   "id": "S6",
+   "name": "Convert snapshot",
+   "status": "SKIP",
+   "summary": "not run: S3 failed",
+   "checked": [],
+   "findings": [],
+   "data": {},
+   "hard": false
+  },
+  {
+   "id": "S7",
+   "name": "Streaming",
+   "status": "SKIP",
+   "summary": "not run: S3 failed",
+   "checked": [],
+   "findings": [],
+   "data": {},
+   "hard": false
+  }
+ ]
+}
