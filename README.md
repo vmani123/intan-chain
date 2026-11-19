@@ -14,7 +14,11 @@ uses the single-board build, described below.
 It exists to produce three numbers honestly: **throughput**, **latency** and
 **accuracy**. Everything else was left out on purpose.
 
-**Read first:** [docs/report-single-board-chain.md](docs/report-single-board-chain.md),
+**Start here:** [docs/GUIDE.md](docs/GUIDE.md) -- the design, the configuration
+the wireless demo runs on (real RHD2164s, ESP32-C5 over TCP on 5 GHz), what
+was learned getting there, and what every file is for.
+
+**Emulator bench write-up:** [docs/report-single-board-chain.md](docs/report-single-board-chain.md),
 the full write-up: architecture, verification, bench results, what limits
 performance, and open issues.
 
