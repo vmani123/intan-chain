@@ -689,3 +689,128 @@ def test_scope_draws_and_answers_keys_off_screen():
     finally:
         import matplotlib.pyplot as plt
         plt.close(sc.fig)
+
+
+# --- unplug and replug: seq restarts, long outages, connections, the control port --
+CLK = C.SYS_CLK_HZ
+
+
+def frame_at(seq, t_cap):
+    return F.parse_frame(F.build_frame(seq, [seq % 1000] * C.N_CH, t_cap=t_cap & 0xFFFFFFFF))
+
+
+def feed(buf, seqs, tcap_of):
+    return sum(buf.push_frame(frame_at(s, tcap_of(s)), 0.0) for s in seqs)
+
+
+def test_a_seq_restart_after_a_short_run_is_shown_at_once():
+    # clear_counters (a bring-up, a recovery): seq back to 0, t_cap keeps counting.
+    buf = V.Buffers(depth=4000)
+    assert feed(buf, range(3000), lambda s: s * PERIOD) == 3000
+    resume = 3000 + 2000                       # a 1 s pause, then the new run
+    assert feed(buf, range(1000), lambda s: (resume + s) * PERIOD) == 1000
+    assert buf.restarts == 1 and buf.reordered == 0 and buf.frames == 4000
+    assert buf.t[-1] == pytest.approx((resume + 999) * PERIOD / CLK)
+    assert buf.lost == 0                        # a restart is not loss
+
+
+def test_an_fpga_reset_after_a_long_run_is_a_new_run_too():
+    # Reset: seq and t_cap both start over, so time cannot tell; the seq distance can.
+    buf = V.Buffers(depth=4000)
+    feed(buf, range(10), lambda s: s * PERIOD)
+    feed(buf, range(70_000, 70_010), lambda s: s * PERIOD)       # long run (gap: fine)
+    assert feed(buf, range(500), lambda s: 7 + s * PERIOD) == 500
+    assert buf.restarts == 1 and buf.reordered == 0
+    assert list(buf.t) == sorted(buf.t)         # time never runs backwards in the store
+
+
+def test_a_late_frame_does_not_move_the_time_base():
+    buf = V.Buffers(depth=100)
+    feed(buf, [s for s in range(12) if s != 7], lambda s: s * PERIOD)
+    assert feed(buf, [7], lambda s: s * PERIOD) == 0               # late: counted only
+    feed(buf, [12], lambda s: s * PERIOD)
+    assert buf.reordered == 1 and buf.restarts == 0
+    assert buf.t[-1] == pytest.approx(12 * PERIOD / CLK)
+
+
+@pytest.mark.parametrize("outage_s", [10.0, 30.0, 50.0, 100.0])
+def test_an_outage_lands_at_the_right_time_whatever_its_length(outage_s):
+    # t_cap wraps every 44.7 s; a delta alone reads a 30 s outage as -14.7 s.
+    buf = V.Buffers(depth=100)
+    feed(buf, range(10), lambda s: s * PERIOD)
+    back = 10 + int(outage_s * 2000)
+    feed(buf, [back, back + 1], lambda s: s * PERIOD)
+    assert buf.t[-2] == pytest.approx(back * PERIOD / CLK)
+    assert buf.t[-1] - buf.t[-2] == pytest.approx(PERIOD / CLK)
+    assert buf.gaps == 1 and buf.lost == back - 10
+
+
+def test_tcp_source_takes_the_old_connections_records_before_switching():
+    src = V.TcpSource(port=0, bind="127.0.0.1")
+    src._done.set()                               # drive it by hand, no thread racing us
+    src.th.join(timeout=2)
+    a, b = socket.socketpair()
+    try:
+        src.conn = a
+        b.sendall(dgram(0) + dgram(5) + dgram(10)[:100])
+        time.sleep(0.05)
+        pend = bytearray()
+        src._drain(pend)
+        assert len(src.q) == 2 and len(pend) == 100   # two whole records kept
+        src._drop_conn(pend)
+        assert src.partial_drops == 1 and src.conn is None
+    finally:
+        b.close()
+        src.lsock.close()
+
+
+def test_a_failing_link_poll_does_not_stop_acquisition():
+    class Source:
+        k = 0
+
+        def poll(self, buf):
+            buf.push(self.k, [0] * 128, self.k * 0.0005)
+            self.k += 1
+            return 1
+
+        def close(self):
+            pass
+
+    class UnpluggedPort:
+        last, error = None, ""
+
+        def poll(self):
+            raise OSError(6, "Device not configured")
+
+    buf = V.Buffers(depth=500)
+    acq = V.Acquirer(Source(), buf, "udp", UnpluggedPort(), window_s=0.2).start()
+    try:
+        deadline = time.monotonic() + 5
+        while buf.frames < 200 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert buf.frames >= 200 and acq.th.is_alive()
+        assert "control port" in acq.error
+    finally:
+        acq.stop()
+
+
+def test_r_asks_the_link_watcher_to_reconfigure():
+    pytest.importorskip("numpy")
+    mpl = pytest.importorskip("matplotlib")
+    mpl.use("Agg", force=True)
+    from types import SimpleNamespace
+    asked = []
+    link = SimpleNamespace(last=None, error="", poll=lambda: None,
+                           request_reconfigure=lambda: asked.append(1))
+    buf = V.Buffers(depth=500)
+    acq = V.Acquirer(None, buf, "tcp", link, window_s=1.0, history_s=2.0)
+    for k in range(400):
+        buf.push(k, [k % 50] * 128, k / 2000)
+    sc = V.Scope(acq, "tcp", window_s=1.0, history_s=2.0)
+    try:
+        assert "r" not in mpl.rcParams["keymap.home"]      # matplotlib no longer owns r
+        sc._key(SimpleNamespace(key="r"))
+        assert asked == [1]
+    finally:
+        import matplotlib.pyplot as plt
+        plt.close(sc.fig)

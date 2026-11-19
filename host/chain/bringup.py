@@ -80,6 +80,10 @@ CAUSES = {
         "the board stopped answering in the middle of a stage",
         "the USB cable; board power (a reset also clears the bitstream); another program "
         "opening the port"),
+    "PORT_LOST": (
+        "the serial device itself went away: the Arty's USB was unplugged or the board reset",
+        "plug the Arty back in, reload the bitstream (openFPGALoader -b arty_s7_25 ...: the "
+        "FPGA forgets it without power) and rerun; the viewer does this by itself"),
     "SELFTEST_FAIL": (
         "the FPGA cannot read its own on-die emulator: a receiver or bitstream fault, not "
         "wiring",
@@ -406,6 +410,13 @@ class Bringup:
             st.add("FAIL", "SPI_NOT_RUNNING", "board", str(e), hard=True)
         except CtrlError as e:
             st.add("FAIL", "UART_LOST", "board", str(e), hard=True)
+        except OSError as e:
+            # pyserial raises OSError (SerialException) when the device itself
+            # goes away: the Arty's USB was pulled, not a bug on this side.
+            st.add("FAIL", "PORT_LOST", "board",
+                   f"the control port disappeared mid-run ({e}): the Arty's USB was unplugged "
+                   f"or reset; plug it back in, reload the bitstream (volatile) and rerun",
+                   hard=True)
         except Exception as e:  # never lose the report to a case nobody foresaw
             st.add("FAIL", "HOST_ERROR", "host", f"{type(e).__name__}: {e}", hard=True)
             st.data["traceback"] = traceback.format_exc()
@@ -1260,6 +1271,26 @@ def prepare(ctrl, opts: Options, out=print, sleep=time.sleep, clock=time.monoton
 # CLI
 # ---------------------------------------------------------------------------
 
+def stop_and_close(ctrl, leave_running: bool = False) -> None:
+    """Clear run (unless asked not to) and close, whatever state the port is in.
+
+    A port that vanished mid-run raises OSError here too; that must not take
+    the report down with it.
+    """
+    if ctrl is None:
+        return
+    if not leave_running:
+        try:
+            if ctrl.read("CTRL") & 1:
+                ctrl.set_run(False)
+        except (CtrlError, OSError):
+            pass
+    try:
+        ctrl.close()
+    except OSError:
+        pass
+
+
 def phase_arg(s: str):
     if s == "auto":
         return None
@@ -1336,14 +1367,7 @@ def main(argv=None, out=print) -> int:
     try:
         rep = b.run()
     finally:
-        if b.ctrl is not None:
-            if not opts.leave_running:
-                try:
-                    if b.ctrl.read("CTRL") & 1:
-                        b.ctrl.set_run(False)
-                except CtrlError:
-                    pass
-            b.ctrl.close()
+        stop_and_close(b.ctrl, opts.leave_running)
     path = args.json
     if path is None and args.fake is None:
         path = RESULTS / f"bringup_{time.strftime('%Y%m%d-%H%M%S')}.json"

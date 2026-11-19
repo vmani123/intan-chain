@@ -47,6 +47,7 @@ from .ctrl import Ctrl, CtrlError
 
 U32 = 0xFFFFFFFF
 RAIL_LSB = 32700
+RESTART_BACK = 1 << 16     # a seq this far behind the newest is a new run (~33 s at 2 kS/s)
 MODULES = ("chip0 A", "chip0 B", "chip1 A", "chip1 B")
 
 
@@ -82,9 +83,13 @@ class Buffers:
     the long scrollable record, which these deques are too slow to hold.
     """
 
-    def __init__(self, n_ch: int = C.N_CH, depth: int = 4000):
+    def __init__(self, n_ch: int = C.N_CH, depth: int = 4000, rate: float = 2000.0):
         self.n_ch = n_ch
         self.depth = depth
+        # Nominal FPGA ticks per frame: picks the right 44.7 s wrap count of
+        # t_cap across an outage (see push_frame).
+        self.period_ticks = C.SYS_CLK_HZ / rate if rate > 0 else C.SYS_CLK_HZ / 2000.0
+        self.restarts = 0          # the stream started over (seq cleared, FPGA reset)
         self.history = None
         self.rows = collections.deque(maxlen=depth)   # array('h') of n_ch per frame
         self.t = collections.deque(maxlen=depth)
@@ -108,13 +113,32 @@ class Buffers:
         if len(self._order) > 4 * self.depth:
             self._seen.discard(self._order.popleft())
 
+    def _new_run(self) -> None:
+        """The stream started over: forget the old run's seqs, keep its samples."""
+        self.restarts += 1
+        self.last_seq = None
+        self._seen.clear()
+        self._order.clear()
+
     # --- input --------------------------------------------------------------
-    def push(self, seq: int, samples, t: float, host_t: float = None) -> bool:
-        """One frame. False if it was a duplicate or arrived out of order (not stored)."""
-        if seq in self._seen:
+    def push(self, seq: int, samples, t: float, host_t: float = None,
+             restart: bool = False) -> bool:
+        """One frame. False if it was a duplicate or arrived out of order (not stored).
+
+        A seq far behind the newest (RESTART_BACK) is a new run, not a late frame:
+        the board cleared its counters (a bring-up, a recovery) or was reset. Read
+        as "late", every frame of the new run would be dropped until it passed the
+        old run's last seq -- a frozen display for as long as the old run lasted.
+        """
+        if not restart and self.last_seq is not None:
+            back = (self.last_seq - seq) & U32
+            restart = RESTART_BACK <= back < 1 << 31
+        if restart:
+            self._new_run()
+        elif seq in self._seen:
             self.duplicates += 1
             return False
-        gap = False
+        gap = restart              # the trace breaks where a new run starts
         if self.last_seq is not None:
             d = (seq - self.last_seq) & U32
             if d >= 1 << 31:
@@ -145,12 +169,40 @@ class Buffers:
         return True
 
     def push_frame(self, fr: F.Frame, host_t: float) -> bool:
-        """A parsed frame; time from t_cap, unwrapped across the 44.7 s counter wrap."""
-        if self._tcap_last is not None:
-            d = (fr.t_cap - self._tcap_last) & U32
-            self._tcap_s += (d if d < 1 << 31 else d - (1 << 32)) / C.SYS_CLK_HZ
+        """A parsed frame; time from t_cap, unwrapped across the 44.7 s counter wrap.
+
+        t_cap is a 32-bit tick counter, so a delta alone cannot tell 5 s from
+        49.7 s. The seq delta can: the FPGA numbers every frame it builds,
+        including the ones an outage lost, so (seq delta x nominal period) picks
+        the wrap count. Only frames that will be stored move the time base: a
+        late or duplicate frame (older seq, older t_cap) must not drag it back.
+        A frame with an older seq but a *newer* t_cap is a new run (counters
+        cleared; t_cap kept counting), and so is one far behind (FPGA reset).
+        """
+        if self._tcap_last is None:
+            self._tcap_last = fr.t_cap
+            return self.push(fr.seq, fr.samples(), self._tcap_s, host_t)
+        raw = (fr.t_cap - self._tcap_last) & U32
+        signed = raw if raw < 1 << 31 else raw - (1 << 32)
+        restart = False
+        dseq = 1
+        if self.last_seq is not None:
+            dseq = (fr.seq - self.last_seq) & U32
+            if dseq == 0 or dseq >= 1 << 31:          # not newer than what is stored
+                back = (self.last_seq - fr.seq) & U32
+                if signed > 0 or back >= RESTART_BACK:
+                    restart = True
+                else:                                 # duplicate or late: counted only
+                    return self.push(fr.seq, fr.samples(), self._tcap_s, host_t)
+        if restart:
+            ticks = raw   # through a counter clear t_cap kept counting; after an FPGA
+                          # reset it is a guess, and the trace breaks there anyway
+        else:
+            k = max(0, round((dseq * self.period_ticks - raw) / (1 << 32)))
+            ticks = raw + k * (1 << 32)
         self._tcap_last = fr.t_cap
-        return self.push(fr.seq, fr.samples(), self._tcap_s, host_t)
+        self._tcap_s += ticks / C.SYS_CLK_HZ
+        return self.push(fr.seq, fr.samples(), self._tcap_s, host_t, restart=restart)
 
     def push_datagram(self, data: bytes, host_t: float) -> int:
         """Frames stored from one datagram; a malformed datagram is counted, not raised."""
@@ -159,7 +211,13 @@ class Buffers:
         except F.FrameError:
             self.malformed += 1
             return 0
-        return sum(self.push_frame(fr, host_t) for fr in frames)
+        n = 0
+        for fr in frames:
+            try:
+                n += self.push_frame(fr, host_t)
+            except F.FrameError:      # e.g. a compressed frame this viewer cannot unpack
+                self.malformed += 1
+        return n
 
     # --- output -------------------------------------------------------------
     def frame_rate(self, now: float, span: float = 2.0) -> float:
@@ -226,6 +284,8 @@ def status_line(buf: Buffers, now: float, source: str, link=None, note: str = ""
              f"seq gaps {buf.gaps} ({buf.lost} lost, {buf.loss_pct():.2f}%)"]
     if buf.duplicates or buf.reordered:
         parts.append(f"dup {buf.duplicates} reord {buf.reordered}")
+    if buf.restarts:
+        parts.append(f"restarts {buf.restarts}")
     if stream:
         parts.append(f"malformed {buf.malformed}")
     if link is not None:
@@ -349,7 +409,6 @@ class TcpSource:
         self.conn = None
 
     def _rx(self):
-        size = C.DGRAM_BYTES
         pend = bytearray()
         while not self._done.is_set():
             socks = [self.lsock] + ([self.conn] if self.conn is not None else [])
@@ -362,6 +421,9 @@ class TcpSource:
                     c, peer = self.lsock.accept()
                 except OSError:
                     continue
+                # Whole records the old connection still holds came before
+                # anything on the new one: take them before letting it go.
+                self._drain(pend)
                 self._drop_conn(pend)
                 self.conn, self.peer = c, peer
                 self.connections += 1
@@ -375,12 +437,34 @@ class TcpSource:
                     self._drop_conn(pend)
                     continue
                 pend += chunk
-                n = len(pend) // size
-                if n:
-                    t = time.monotonic()
-                    for i in range(n):
-                        self.q.append((t, bytes(pend[i * size:(i + 1) * size])))
-                    del pend[:n * size]
+                self._cut(pend)
+
+    def _cut(self, pend: bytearray) -> None:
+        """Queue every whole record at the front of pend."""
+        size = C.DGRAM_BYTES
+        n = len(pend) // size
+        if n:
+            t = time.monotonic()
+            for i in range(n):
+                self.q.append((t, bytes(pend[i * size:(i + 1) * size])))
+            del pend[:n * size]
+
+    def _drain(self, pend: bytearray) -> None:
+        """Read whatever the current connection has already received, without waiting."""
+        if self.conn is None:
+            return
+        try:
+            self.conn.setblocking(False)
+            while True:
+                chunk = self.conn.recv(1 << 16)
+                if not chunk:
+                    break
+                pend += chunk
+        except (BlockingIOError, InterruptedError):
+            pass
+        except OSError:
+            pass
+        self._cut(pend)
 
     def poll(self, buf: Buffers) -> int:
         n = 0
@@ -925,7 +1009,10 @@ class Acquirer:
                 self.error = f"source: {e}"
                 self._stop.wait(0.2)
             if self.link:
-                self.link.poll()
+                try:
+                    self.link.poll()
+                except Exception as e:      # an unplugged control port must not stop
+                    self.error = f"control port: {e}"   # acquisition with it
             now = self.clock()
             if now >= next_status or (n and self.kind == "uart"):
                 self._status = self._status_now(now)
@@ -1171,7 +1258,7 @@ class Scope:
                              # matplotlib's own keys that would collide with ours
                              # (s saved the figure, arrows and Home moved the axes)
                              "keymap.save": ["ctrl+s"], "keymap.back": ["c", "backspace"],
-                             "keymap.forward": ["v"], "keymap.home": ["r"],
+                             "keymap.forward": ["v"], "keymap.home": [],
                              "keymap.xscale": [], "keymap.yscale": []})
         fig = self.fig = plt.figure(figsize=(16, 10), facecolor=SURFACE)
         try:
@@ -1517,9 +1604,11 @@ class Scope:
         if self._rg is None:
             return
         snap = self.acq.latest()
-        if snap is not None and snap.version != self._seen:
+        if snap is not None and snap.version != self._seen and not self.acq.render_error:
             self._take(snap)
-        elif snap is None:                   # nothing yet: still say what the link is doing
+        elif snap is None or self.acq.render_error:
+            # Nothing yet, or rendering is failing and no new snapshot will come:
+            # still say what the link (or the renderer) is doing.
             now, st = self.clock(), self.acq.status()
             if st != self._status_txt and now - self._status_t >= 0.25:
                 self._status_t, self._status_txt = now, st
@@ -1571,6 +1660,10 @@ class Scope:
             self.show_map = not self.show_map
             self._layout()
             self.fig.canvas.draw_idle()      # the layout changed: one full redraw
+        elif k == "r":
+            link = getattr(self.acq, "link", None)
+            if link is not None and hasattr(link, "request_reconfigure"):
+                link.request_reconfigure()   # the watcher thread does it, not the GUI
 
     def _wheel(self, ev):
         # A trackpad sends a stream of small steps: add them up, and do not wait
@@ -1715,6 +1808,15 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--no-config", action="store_true",
                     help="with --uart: skip configuring (the chips were just brought up)")
     ap.add_argument("--leave-running", action="store_true")
+    ap.add_argument("--no-recover", action="store_true",
+                    help="with --serial: do not watch the link or put the chain back together "
+                         "after an unplug (default: reconfigure the chips when a sleeve comes "
+                         "back, reopen a lost port, reload a blank FPGA)")
+    ap.add_argument("--bitstream", default=None, metavar="PATH",
+                    help="bitstream to reload if the FPGA loses power (default: "
+                         "fpga/bitstreams/headstage_arty_s7_25_div6.bit)")
+    ap.add_argument("--no-reload", action="store_true",
+                    help="never run openFPGALoader; just say the FPGA needs reloading")
     ap.add_argument("--spi-div", type=int, default=0)
     ap.add_argument("--phase", type=B.phase_arg, default=None, metavar="N|auto",
                     help="PHASE_SELECT for --start/--uart, or auto (default)")
@@ -1741,8 +1843,8 @@ def main(argv=None, out=print) -> int:
         ap.error("--uart needs --serial PORT")
     if a.start and not ((a.udp or a.tcp) and a.serial):
         ap.error("--start needs --udp or --tcp, and --serial")
-    if a.window <= 0 or a.history <= 0:
-        ap.error("--window and --history must be positive")
+    if a.window <= 0 or a.history <= 0 or a.rate <= 0:
+        ap.error("--window, --history and --rate must be positive")
     from .diag import Diag
     opts = B.Options(serial=a.serial, baud=a.baud, spi_div=a.spi_div,
                      phase=a.phase, rate=a.rate, lower=a.lower, upper=a.upper)
@@ -1757,7 +1859,17 @@ def main(argv=None, out=print) -> int:
             started = a.start and bool(ctrl.read("CTRL") & 1)
         if a.udp or a.tcp:
             source = TcpSource(a.udp_port) if a.tcp else UdpSource(a.udp_port)
-            link = LinkPoller(ctrl) if ctrl is not None else None
+            if ctrl is None:
+                link = None
+            elif a.no_recover:
+                link = LinkPoller(ctrl)
+            else:
+                from . import recover as RC
+                program = None if a.no_reload else RC.openfpgaloader(
+                    a.bitstream or RC.DEFAULT_BITSTREAM)
+                link = RC.LinkWatch(
+                    ctrl, opts, program=program, out=out,
+                    open_ctrl=lambda: Ctrl(a.serial, baud=a.baud)).start()
             depth = int(a.window * a.rate * 1.5) + 10
         else:
             if ctrl.read("CTRL") & 1:
@@ -1765,7 +1877,7 @@ def main(argv=None, out=print) -> int:
                 ctrl.set_run(False)
             source = UartSource(Diag(ctrl))
             depth = 2000
-        buf = Buffers(depth=depth)
+        buf = Buffers(depth=depth, rate=a.rate)
         kind = "udp" if a.udp else "tcp" if a.tcp else "uart"
         if a.headless is not None:
             run_headless(source, buf, a.headless, out=out, link=link, kind=kind)
@@ -1781,13 +1893,19 @@ def main(argv=None, out=print) -> int:
     finally:
         if source is not None:
             source.close()
+        if link is not None and hasattr(link, "stop"):
+            link.stop()             # before anything else touches the port
+            ctrl = link.ctrl        # the watcher may have reopened it (or lost it)
         if ctrl is not None:
             if started and not a.leave_running:
                 try:
                     ctrl.set_run(False)
-                except CtrlError:
+                except (CtrlError, OSError):
                     pass
-            ctrl.close()
+            try:
+                ctrl.close()
+            except OSError:
+                pass
     return 0
 
 

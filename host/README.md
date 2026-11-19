@@ -174,6 +174,7 @@ the bar says how far behind live it is); live, it follows the newest frame.
 | `+` / `-` | fewer / more lanes: 128, 64, 32, 16, 8 (onto the block under the mouse) |
 | `1`-`4` / `0` | one module (32 lanes) / all 128 |
 | `s`, `m` | shared scale on / off, activity strip on / off |
+| `r` | reconfigure the chips now (what the viewer does by itself after a replug) |
 
 Hover a lane or a tile for that channel's RMS, mean, min and max over the
 visible window and what a full lane means. **Lost frames** (seq gaps, or a
@@ -198,8 +199,26 @@ send at once (the node's `txerr`); TCP waits instead, so a burst arrives late
 rather than missing. The node spools up to 2000 datagrams in PSRAM (5 s at
 2 kS/s), so only an outage longer than that loses data, counted on the node's
 `tcp:` line and shown here as seq gaps. A new connection (node rebooted)
-replaces the old one; the status line says whether the node is connected.
-Measured on CMU-DEVICE at 5 GHz: 8011 of 8011 datagrams over 20 s.
+replaces the old one (after taking any whole records the old one still held);
+the status line says whether the node is connected. Measured on CMU-DEVICE at
+5 GHz: 8011 of 8011 datagrams over 20 s; on the strongest AP, 8012 of 8012 at
+a steady 400 datagrams/s with the spool never above 13.
+
+**Unplugging and replugging.** With `--serial`, the viewer runs a link
+watcher (`chain/recover.py`) on its own thread; `--no-recover` turns it off.
+
+| What was unplugged | What you see | What happens |
+|---|---|---|
+| sleeve / headstage | `LINK DOWN chip0 A, ...` on the status line | When it is back and the link has been steady for 1 s, the chips are reconfigured (S4 + S5 at the running SPI_DIV and phase, ~4 s on the bench; a full S0, S2-S5 with a phase scan, ~11 s, if that does not take). A replugged chip comes back with every register at power-up garbage, but still passes the link check, so without this every channel reads nonsense. |
+| the C5 | `waiting for the node` | The node reboots, rejoins the strongest AP and reconnects (~19 s on the bench); what it missed is counted as lost frames. |
+| the viewer itself | — | The node holds its spool for 4 s while it reconnects; a viewer restarted within that loses ~0.01 s. |
+| the Arty's USB | `Arty USB disconnected` | The port is reopened when it reappears, the bitstream reloaded with openFPGALoader (`--bitstream`, or `--no-reload` to only say so) and bring-up run again. Tested against the fake board only. |
+| one chip, on purpose | `not answering: chip1 A, chip1 B` | Left alone; plugging it in later counts as a replug. |
+
+A seq restart (counters cleared by a bring-up or a recovery, or an FPGA reset)
+is shown as a break and counted (`restarts N`), never read as late frames; an
+outage of any length lands at the right time (the seq delta picks the t_cap
+wrap). `r` asks for a reconfigure by hand.
 
 The status line shows frame rate, seq gaps and frames lost, malformed
 datagrams, and, with `--serial`, LINK_ERR per lane. `--uart` needs no ESP but
